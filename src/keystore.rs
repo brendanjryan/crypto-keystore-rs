@@ -493,7 +493,8 @@ impl<K: ChainKey> Keystore<K> {
 
         // Determine MAC algorithm: Keccak256 for v3 (Ethereum legacy) or v4 with chain="ethereum",
         // SHA256 for all other chains
-        let use_keccak = keystore.version == VERSION_3 || keystore.chain.as_deref() == Some("ethereum");
+        let use_keccak =
+            keystore.version == VERSION_3 || keystore.chain.as_deref() == Some("ethereum");
 
         let computed_mac = Self::compute_mac(mac_key, &ciphertext_bytes, use_keccak)?;
 

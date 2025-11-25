@@ -88,10 +88,12 @@ impl ChainKey for SolanaKey {
         }
 
         // SAFETY: Length checked above, so slice access is safe
-        let secret_bytes: [u8; SECRET_KEY_SIZE] =
-            bytes[..SECRET_KEY_SIZE].try_into().expect("length already validated");
-        let public_bytes: [u8; PUBLIC_KEY_SIZE] =
-            bytes[SECRET_KEY_SIZE..].try_into().expect("length already validated");
+        let secret_bytes: [u8; SECRET_KEY_SIZE] = bytes[..SECRET_KEY_SIZE]
+            .try_into()
+            .expect("length already validated");
+        let public_bytes: [u8; PUBLIC_KEY_SIZE] = bytes[SECRET_KEY_SIZE..]
+            .try_into()
+            .expect("length already validated");
 
         let signing_key = SigningKey::from_bytes(&secret_bytes);
 
