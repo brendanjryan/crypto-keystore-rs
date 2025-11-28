@@ -1,0 +1,58 @@
+[package]
+name = "crypto-keystore-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Brendan Ryan"]
+description = "Multi-chain keystore library supporting Ethereum and Solana with Web3 Secret Storage format"
+license = "Apache-2.0"
+repository = "https://github.com/brendanjryan/crypto-keystore-rs"
+documentation = "https://docs.rs/crypto-keystore-rs"
+homepage = "https://github.com/brendanjryan/crypto-keystore-rs"
+readme = "README.md"
+keywords = ["keystore", "ethereum", "solana", "crypto", "web3"]
+categories = ["cryptography"]
+exclude = [
+    ".github/",
+    "vendor/",
+    "keystores/",
+]
+
+[dependencies]
+# Core dependencies (always included)
+aes = "0.8"
+ctr = "0.9"
+pbkdf2 = { version = "0.12", default-features = false }
+scrypt = { version = "0.11", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+rand = "0.8"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+zeroize = { version = "1.7", features = ["derive"] }
+hex = "0.4"
+subtle = "2.5"
+
+# Chain-specific dependencies (feature-gated)
+k256 = { version = "0.13", features = ["ecdsa"], optional = true }
+sha3 = { version = "0.10", optional = true }
+ed25519-dalek = { version = "2.0", features = ["rand_core"], optional = true }
+bs58 = { version = "0.5", optional = true }
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[features]
+default = ["ethereum", "solana"]
+ethereum = ["k256", "sha3"]
+solana = ["ed25519-dalek", "bs58"]
+# Use weak crypto params for faster tests (never use in production!)
+test-utils = []
+
+[[example]]
+name = "ethereum_basic"
+required-features = ["ethereum"]
+
+[[example]]
+name = "solana_basic"
+required-features = ["solana"]
