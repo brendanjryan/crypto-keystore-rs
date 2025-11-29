@@ -27,11 +27,11 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 rand = "0.8"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-thiserror = "1.0"
-zeroize = { version = "1.7", features = ["derive"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }
+thiserror = "2.0"
+zeroize = { version = "1.8", features = ["derive"] }
 hex = "0.4"
-subtle = "2.5"
+subtle = "2.6"
 remain = "0.2"
 
 # Chain-specific dependencies (feature-gated)
@@ -41,7 +41,7 @@ ed25519-dalek = { version = "2.0", features = ["rand_core"], optional = true }
 bs58 = { version = "0.5", optional = true }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = "3.23"
 
 [features]
 default = ["ethereum", "solana"]
