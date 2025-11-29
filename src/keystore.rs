@@ -162,20 +162,21 @@ struct CipherparamsJson {
     iv: String,
 }
 
+#[remain::sorted]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kdf", rename_all = "lowercase")]
 enum KdfparamsType {
+    Pbkdf2 {
+        dklen: u32,
+        c: u32,
+        prf: String,
+        salt: String,
+    },
     Scrypt {
         dklen: u32,
         n: u32,
         p: u32,
         r: u32,
-        salt: String,
-    },
-    Pbkdf2 {
-        dklen: u32,
-        c: u32,
-        prf: String,
         salt: String,
     },
 }

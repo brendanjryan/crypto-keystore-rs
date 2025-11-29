@@ -32,6 +32,7 @@ thiserror = "1.0"
 zeroize = { version = "1.7", features = ["derive"] }
 hex = "0.4"
 subtle = "2.5"
+remain = "0.2"
 
 # Chain-specific dependencies (feature-gated)
 k256 = { version = "0.13", features = ["ecdsa"], optional = true }
