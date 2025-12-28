@@ -3,7 +3,6 @@ use crate::error::{KeystoreError, Result};
 use k256::ecdsa::SigningKey;
 use rand::{CryptoRng, RngCore};
 use sha3::{Digest, Keccak256};
-use zeroize::Zeroize;
 
 /// Prefix byte size for uncompressed public key (0x04)
 const UNCOMPRESSED_PUBLIC_KEY_PREFIX_SIZE: usize = 1;
@@ -67,16 +66,7 @@ impl ChainKey for EthereumKey {
     }
 
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() != Self::KEYSTORE_SIZE {
-            return Err(KeystoreError::InvalidKey {
-                chain: Self::CHAIN_ID.into(),
-                reason: format!(
-                    "Expected {} bytes, got {}",
-                    Self::KEYSTORE_SIZE,
-                    bytes.len()
-                ),
-            });
-        }
+        Self::validate_keystore_size(bytes)?;
 
         let signing_key = SigningKey::from_slice(bytes).map_err(|e| KeystoreError::InvalidKey {
             chain: Self::CHAIN_ID.into(),
@@ -93,13 +83,6 @@ impl ChainKey for EthereumKey {
 
     fn address(&self) -> String {
         EthereumKey::address(self)
-    }
-}
-
-impl Drop for EthereumKey {
-    fn drop(&mut self) {
-        let mut bytes = self.signing_key.to_bytes();
-        bytes.zeroize();
     }
 }
 

@@ -2,7 +2,6 @@ use crate::chains::ChainKey;
 use crate::error::{KeystoreError, Result};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::{CryptoRng, RngCore};
-use zeroize::Zeroize;
 
 /// Size of Ed25519 secret key in bytes
 const SECRET_KEY_SIZE: usize = 32;
@@ -76,16 +75,7 @@ impl ChainKey for SolanaKey {
     }
 
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() != Self::KEYSTORE_SIZE {
-            return Err(KeystoreError::InvalidKey {
-                chain: Self::CHAIN_ID.into(),
-                reason: format!(
-                    "Expected {} bytes, got {}",
-                    Self::KEYSTORE_SIZE,
-                    bytes.len()
-                ),
-            });
-        }
+        Self::validate_keystore_size(bytes)?;
 
         // SAFETY: Length checked above, so slice access is safe
         let secret_bytes: [u8; SECRET_KEY_SIZE] = bytes[..SECRET_KEY_SIZE]
@@ -121,13 +111,6 @@ impl ChainKey for SolanaKey {
 
     fn address(&self) -> String {
         SolanaKey::address(self)
-    }
-}
-
-impl Drop for SolanaKey {
-    fn drop(&mut self) {
-        let mut bytes = self.signing_key.to_bytes();
-        bytes.zeroize();
     }
 }
 

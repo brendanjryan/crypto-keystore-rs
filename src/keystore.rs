@@ -1,4 +1,5 @@
 use crate::chains::ChainKey;
+use crate::crypto_config::*;
 use crate::error::{KeystoreError, Result};
 use aes::cipher::{KeyIvInit, StreamCipher};
 use pbkdf2::pbkdf2_hmac;
@@ -17,27 +18,6 @@ use sha3::Keccak256;
 
 type Aes128Ctr = ctr::Ctr64BE<aes::Aes128>;
 
-/// AES-128-CTR cipher identifier for Web3 Secret Storage format
-const CIPHER_NAME: &str = "aes-128-ctr";
-
-/// Size of encryption key and salt in bytes
-const DEFAULT_KEY_SIZE: usize = 32;
-
-/// Size of initialization vector in bytes
-const DEFAULT_IV_SIZE: usize = 16;
-
-/// Derived key length for KDF output
-const DEFAULT_KDF_PARAMS_DKLEN: u8 = 32;
-
-/// Size of encryption key slice from derived key (first 16 bytes)
-const ENCRYPTION_KEY_SIZE: usize = 16;
-
-/// Size of MAC key slice from derived key (second 16 bytes)
-const MAC_KEY_SIZE: usize = 16;
-
-/// Supported PRF (Pseudo-Random Function) for PBKDF2
-const SUPPORTED_PRF: &str = "hmac-sha256";
-
 /// Keystore version 3 - Ethereum Legacy Format
 ///
 /// The original Web3 Secret Storage Definition format used by Ethereum.
@@ -54,29 +34,6 @@ pub const VERSION_3: u32 = 3;
 ///   - `chain="ethereum"` → Keccak256 (for Ethereum compatibility)
 ///   - `chain="solana"` or others → SHA256
 pub const VERSION_4: u32 = 4;
-
-// Use weaker params in tests for speed, production params otherwise
-#[cfg(not(any(test, feature = "test-utils")))]
-/// Scrypt log2(N) parameter for production (2^18 = 262,144 iterations)
-const DEFAULT_KDF_PARAMS_LOG_N: u8 = 18;
-
-#[cfg(any(test, feature = "test-utils"))]
-/// Scrypt log2(N) parameter for tests (2^4 = 16 iterations, INSECURE!)
-const DEFAULT_KDF_PARAMS_LOG_N: u8 = 4;
-
-/// Scrypt r parameter (block size)
-const DEFAULT_KDF_PARAMS_R: u32 = 8;
-
-/// Scrypt p parameter (parallelization)
-const DEFAULT_KDF_PARAMS_P: u32 = 1;
-
-/// Computed Scrypt N value for production (2^18 = 262,144)
-#[cfg(not(any(test, feature = "test-utils")))]
-const SCRYPT_N: u32 = 1 << DEFAULT_KDF_PARAMS_LOG_N;
-
-/// Computed Scrypt N value for tests (2^4 = 16)
-#[cfg(any(test, feature = "test-utils"))]
-const SCRYPT_N: u32 = 1 << DEFAULT_KDF_PARAMS_LOG_N;
 
 /// A generic keystore supporting multiple blockchain key types.
 ///
@@ -419,18 +376,6 @@ impl<K: ChainKey> Keystore<K> {
         })
     }
 
-    /// Constructs the filename for a keystore file: `{uuid}.json`
-    #[inline]
-    fn keystore_filename(uuid: &str) -> String {
-        format!("{uuid}.json")
-    }
-
-    /// Constructs the full file path for saving a keystore
-    #[inline]
-    fn keystore_filepath<P: AsRef<Path>>(dir: P, uuid: &str) -> std::path::PathBuf {
-        dir.as_ref().join(Self::keystore_filename(uuid))
-    }
-
     /// Saves the keystore to a JSON file in the specified directory.
     ///
     /// The file will be named `{uuid}.json` where uuid is the keystore's unique identifier.
@@ -463,7 +408,7 @@ impl<K: ChainKey> Keystore<K> {
             fs::create_dir_all(dir)?;
         }
 
-        let filepath = Self::keystore_filepath(dir, &self.id);
+        let filepath = dir.join(format!("{}.json", self.id));
 
         let json = serde_json::to_string_pretty(self)?;
         fs::write(&filepath, json)?;

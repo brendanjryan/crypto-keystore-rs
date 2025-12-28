@@ -60,4 +60,22 @@ pub trait ChainKey: Sized + Clone {
     /// Get the blockchain address as a string
     #[must_use]
     fn address(&self) -> String;
+
+    /// Validate keystore bytes length
+    ///
+    /// Provides default validation that bytes match expected KEYSTORE_SIZE.
+    /// Called by `from_keystore_bytes` implementations.
+    fn validate_keystore_size(bytes: &[u8]) -> Result<()> {
+        if bytes.len() != Self::KEYSTORE_SIZE {
+            return Err(crate::error::KeystoreError::InvalidKey {
+                chain: Self::CHAIN_ID.into(),
+                reason: format!(
+                    "Expected {} bytes, got {}",
+                    Self::KEYSTORE_SIZE,
+                    bytes.len()
+                ),
+            });
+        }
+        Ok(())
+    }
 }

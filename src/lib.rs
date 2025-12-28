@@ -23,6 +23,7 @@
 //! ```
 
 pub mod chains;
+mod crypto_config;
 pub mod error;
 pub mod keystore;
 

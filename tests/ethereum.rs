@@ -1,12 +1,12 @@
 #![cfg(feature = "ethereum")]
 
+mod common;
+
+use common::{
+    assert_valid_ethereum_address, create_temp_keystore_dir, TEST_PASSWORD, TEST_WRONG_PASSWORD,
+};
 use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore};
 use rand::thread_rng;
-use tempfile::tempdir;
-
-// Common test constants
-const TEST_PASSWORD: &str = "TEST_PASSWORD_123";
-const TEST_WRONG_PASSWORD: &str = "wrong_password";
 
 #[test]
 fn creates_new_keystore_and_loads_with_correct_password() {
@@ -14,8 +14,9 @@ fn creates_new_keystore_and_loads_with_correct_password() {
 
     let keystore = EthereumKeystore::new(password).unwrap();
     let original_address = keystore.key().unwrap().address();
+    assert_valid_ethereum_address(&original_address);
 
-    let dir = tempdir().unwrap();
+    let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
 
     let filepath = dir.path().join(format!("{uuid}.json"));
@@ -30,7 +31,7 @@ fn fails_to_load_keystore_with_incorrect_password() {
 
     let keystore = EthereumKeystore::new(password).unwrap();
 
-    let dir = tempdir().unwrap();
+    let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
 
     let filepath = dir.path().join(format!("{uuid}.json"));
@@ -45,7 +46,7 @@ fn serializes_keystore_with_correct_json_format() {
 
     let keystore = EthereumKeystore::new(password).unwrap();
 
-    let dir = tempdir().unwrap();
+    let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
 
     let filepath = dir.path().join(format!("{uuid}.json"));
@@ -68,7 +69,7 @@ fn creates_keystore_from_existing_ethereum_key() {
 
     let keystore = EthereumKeystore::from_key(original_key, password).unwrap();
 
-    let dir = tempdir().unwrap();
+    let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
 
     let filepath = dir.path().join(format!("{uuid}.json"));
