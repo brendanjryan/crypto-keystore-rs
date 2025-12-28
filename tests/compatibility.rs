@@ -1,7 +1,7 @@
 mod common;
 
 use common::TEST_PASSWORD;
-use crypto_keystore_rs::VERSION_4;
+use crypto_keystore_rs::{KdfConfig, VERSION_4};
 
 #[cfg(feature = "ethereum")]
 use crypto_keystore_rs::EthereumKeystore;
@@ -17,7 +17,8 @@ use crypto_keystore_rs::SolanaKeystore;
 #[cfg(feature = "ethereum")]
 fn v4_ethereum_keystore_roundtrip() {
     // Create a V4 Ethereum keystore
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let original_address = keystore.key().unwrap().address();
 
     // Verify it's V4 with chain field
@@ -38,7 +39,8 @@ fn v4_ethereum_keystore_roundtrip() {
 #[cfg(feature = "solana")]
 fn v4_solana_keystore_roundtrip() {
     // Create a V4 Solana keystore
-    let keystore = SolanaKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        SolanaKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let original_address = keystore.key().unwrap().address();
 
     // Verify it's V4 with chain field
@@ -62,7 +64,8 @@ fn v4_solana_keystore_roundtrip() {
 #[test]
 #[cfg(feature = "ethereum")]
 fn keystore_uses_scrypt_kdf_by_default() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let json = keystore.to_json().unwrap();
 
     // Should use Scrypt KDF
@@ -80,7 +83,8 @@ fn keystore_uses_scrypt_kdf_by_default() {
 #[cfg(feature = "ethereum")]
 fn roundtrip_preserves_kdf_type_scrypt() {
     // Create keystore (uses Scrypt by default)
-    let keystore1 = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore1 =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let json1 = keystore1.to_json().unwrap();
 
     // Verify it uses scrypt
@@ -101,7 +105,8 @@ fn roundtrip_preserves_kdf_type_scrypt() {
 #[test]
 #[cfg(feature = "ethereum")]
 fn newly_created_keystores_use_v4_format() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
 
     assert_eq!(keystore.version(), VERSION_4);
     assert_eq!(keystore.chain(), Some("ethereum"));
@@ -110,7 +115,8 @@ fn newly_created_keystores_use_v4_format() {
 #[test]
 #[cfg(feature = "solana")]
 fn solana_keystores_use_v4_format() {
-    let keystore = SolanaKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        SolanaKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
 
     assert_eq!(keystore.version(), VERSION_4);
     assert_eq!(keystore.chain(), Some("solana"));
@@ -125,7 +131,8 @@ fn solana_keystores_use_v4_format() {
 fn ethereum_keystore_stores_32_byte_key() {
     use crypto_keystore_rs::ChainKey;
 
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let key_bytes = keystore.key().unwrap().to_keystore_bytes();
 
     // Ethereum keys are 32 bytes (private key only)
@@ -137,7 +144,8 @@ fn ethereum_keystore_stores_32_byte_key() {
 fn solana_keystore_stores_64_byte_keypair() {
     use crypto_keystore_rs::ChainKey;
 
-    let keystore = SolanaKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        SolanaKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let key_bytes = keystore.key().unwrap().to_keystore_bytes();
 
     // Solana stores full keypair: 32 bytes secret + 32 bytes public

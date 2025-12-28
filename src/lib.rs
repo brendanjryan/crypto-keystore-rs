@@ -25,11 +25,13 @@
 pub mod chains;
 mod crypto_config;
 pub mod error;
+pub mod kdf_config;
 pub mod keystore;
 
 pub use chains::ChainKey;
 pub use error::{KeystoreError, Result};
-pub use keystore::{Keystore, VERSION_3, VERSION_4};
+pub use kdf_config::{KdfConfig, KdfParams, KdfType};
+pub use keystore::{Keystore, KeystoreBuilder, KeystoreVersion, VERSION_3, VERSION_4};
 
 // == Keys ==
 

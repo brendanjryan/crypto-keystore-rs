@@ -1,7 +1,7 @@
 mod common;
 
 use common::TEST_PASSWORD;
-use crypto_keystore_rs::{Keystore, VERSION_4};
+use crypto_keystore_rs::{KdfConfig, Keystore, VERSION_4};
 use rand::SeedableRng;
 
 #[cfg(feature = "ethereum")]
@@ -17,7 +17,8 @@ use crypto_keystore_rs::{SolanaKey, SolanaKeystore};
 #[test]
 #[cfg(feature = "ethereum")]
 fn keystore_id_returns_valid_uuid() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
 
     let id = keystore.id();
     assert!(!id.is_empty());
@@ -30,28 +31,32 @@ fn keystore_id_returns_valid_uuid() {
 #[test]
 #[cfg(feature = "ethereum")]
 fn keystore_version_returns_v4() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     assert_eq!(keystore.version(), VERSION_4);
 }
 
 #[test]
 #[cfg(feature = "ethereum")]
 fn ethereum_keystore_chain_returns_ethereum() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     assert_eq!(keystore.chain(), Some("ethereum"));
 }
 
 #[test]
 #[cfg(feature = "solana")]
 fn solana_keystore_chain_returns_solana() {
-    let keystore = SolanaKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        SolanaKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     assert_eq!(keystore.chain(), Some("solana"));
 }
 
 #[test]
 #[cfg(feature = "ethereum")]
 fn decrypted_keystore_is_decrypted_returns_true() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     assert!(keystore.is_decrypted());
 }
 
@@ -59,7 +64,8 @@ fn decrypted_keystore_is_decrypted_returns_true() {
 #[cfg(feature = "ethereum")]
 fn non_decrypted_keystore_is_decrypted_returns_false() {
     // Create and serialize a keystore
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let json = keystore.to_json().unwrap();
 
     // Deserialize without decrypting
@@ -75,7 +81,8 @@ fn non_decrypted_keystore_is_decrypted_returns_false() {
 #[test]
 #[cfg(feature = "ethereum")]
 fn to_json_produces_valid_json() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let json = keystore.to_json().unwrap();
 
     // Verify it's valid JSON
@@ -91,7 +98,8 @@ fn to_json_produces_valid_json() {
 #[test]
 #[cfg(feature = "ethereum")]
 fn to_json_roundtrip_preserves_keystore() {
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let original_address = keystore.key().unwrap().address();
 
     // Serialize to JSON
@@ -128,8 +136,18 @@ fn new_with_rng_produces_deterministic_results_with_same_seed() {
     let mut rng1 = StdRng::seed_from_u64(42);
     let mut rng2 = StdRng::seed_from_u64(42);
 
-    let ks1 = EthereumKeystore::new_with_rng(&mut rng1, TEST_PASSWORD).unwrap();
-    let ks2 = EthereumKeystore::new_with_rng(&mut rng2, TEST_PASSWORD).unwrap();
+    let ks1 = EthereumKeystore::new_with_rng_and_config(
+        &mut rng1,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
+    let ks2 = EthereumKeystore::new_with_rng_and_config(
+        &mut rng2,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
 
     // Same seed should produce same address
     assert_eq!(ks1.key().unwrap().address(), ks2.key().unwrap().address());
@@ -143,8 +161,18 @@ fn new_with_rng_produces_different_results_with_different_seeds() {
     let mut rng1 = StdRng::seed_from_u64(42);
     let mut rng2 = StdRng::seed_from_u64(99);
 
-    let ks1 = EthereumKeystore::new_with_rng(&mut rng1, TEST_PASSWORD).unwrap();
-    let ks2 = EthereumKeystore::new_with_rng(&mut rng2, TEST_PASSWORD).unwrap();
+    let ks1 = EthereumKeystore::new_with_rng_and_config(
+        &mut rng1,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
+    let ks2 = EthereumKeystore::new_with_rng_and_config(
+        &mut rng2,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
 
     // Different seeds should produce different addresses
     assert_ne!(ks1.key().unwrap().address(), ks2.key().unwrap().address());
@@ -163,7 +191,9 @@ fn from_key_preserves_address() {
     let key = EthereumKey::generate(&mut rng);
     let expected_address = key.address();
 
-    let keystore = EthereumKeystore::from_key(key, TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::from_key_with_config(key, TEST_PASSWORD, KdfConfig::scrypt_interactive())
+            .unwrap();
 
     assert_eq!(keystore.key().unwrap().address(), expected_address);
 }
@@ -180,8 +210,13 @@ fn from_key_with_rng_preserves_address() {
 
     // Create keystore with a different RNG
     let mut keystore_rng = StdRng::seed_from_u64(99);
-    let keystore =
-        EthereumKeystore::from_key_with_rng(&mut keystore_rng, key, TEST_PASSWORD).unwrap();
+    let keystore = EthereumKeystore::from_key_with_rng_and_config(
+        &mut keystore_rng,
+        key,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
 
     // Address should match the original key
     assert_eq!(keystore.key().unwrap().address(), expected_address);
@@ -201,12 +236,22 @@ fn from_key_with_rng_with_different_seeds_produces_different_keystores() {
 
     // Create keystores with different encryption RNG seeds
     let mut enc_rng1 = StdRng::seed_from_u64(100);
-    let keystore1 =
-        EthereumKeystore::from_key_with_rng(&mut enc_rng1, key1, TEST_PASSWORD).unwrap();
+    let keystore1 = EthereumKeystore::from_key_with_rng_and_config(
+        &mut enc_rng1,
+        key1,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
 
     let mut enc_rng2 = StdRng::seed_from_u64(200);
-    let keystore2 =
-        EthereumKeystore::from_key_with_rng(&mut enc_rng2, key2, TEST_PASSWORD).unwrap();
+    let keystore2 = EthereumKeystore::from_key_with_rng_and_config(
+        &mut enc_rng2,
+        key2,
+        TEST_PASSWORD,
+        KdfConfig::scrypt_interactive(),
+    )
+    .unwrap();
 
     // Should have different UUIDs (different random IVs/salts)
     assert_ne!(keystore1.id(), keystore2.id());

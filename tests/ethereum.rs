@@ -5,14 +5,15 @@ mod common;
 use common::{
     assert_valid_ethereum_address, create_temp_keystore_dir, TEST_PASSWORD, TEST_WRONG_PASSWORD,
 };
-use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore};
+use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore, KdfConfig};
 use rand::thread_rng;
 
 #[test]
 fn creates_new_keystore_and_loads_with_correct_password() {
     let password = TEST_PASSWORD;
 
-    let keystore = EthereumKeystore::new(password).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1)).unwrap();
     let original_address = keystore.key().unwrap().address();
     assert_valid_ethereum_address(&original_address);
 
@@ -29,7 +30,8 @@ fn creates_new_keystore_and_loads_with_correct_password() {
 fn fails_to_load_keystore_with_incorrect_password() {
     let password = TEST_PASSWORD;
 
-    let keystore = EthereumKeystore::new(password).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1)).unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
@@ -44,7 +46,8 @@ fn fails_to_load_keystore_with_incorrect_password() {
 fn serializes_keystore_with_correct_json_format() {
     let password = "TEST_PASSWORD";
 
-    let keystore = EthereumKeystore::new(password).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1)).unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
@@ -67,7 +70,12 @@ fn creates_keystore_from_existing_ethereum_key() {
     let original_key = EthereumKey::generate(&mut rng);
     let original_address = original_key.address();
 
-    let keystore = EthereumKeystore::from_key(original_key, password).unwrap();
+    let keystore = EthereumKeystore::from_key_with_config(
+        original_key,
+        password,
+        KdfConfig::custom_scrypt(4, 8, 1),
+    )
+    .unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
@@ -82,8 +90,10 @@ fn creates_keystore_from_existing_ethereum_key() {
 fn generates_unique_addresses_for_multiple_keystores() {
     let password = "TEST_PASSWORD";
 
-    let keystore1 = EthereumKeystore::new(password).unwrap();
-    let keystore2 = EthereumKeystore::new(password).unwrap();
+    let keystore1 =
+        EthereumKeystore::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1)).unwrap();
+    let keystore2 =
+        EthereumKeystore::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1)).unwrap();
 
     let addr1 = keystore1.key().unwrap().address();
     let addr2 = keystore2.key().unwrap().address();

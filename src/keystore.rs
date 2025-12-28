@@ -1,6 +1,7 @@
 use crate::chains::ChainKey;
 use crate::crypto_config::*;
 use crate::error::{KeystoreError, Result};
+use crate::kdf_config::{KdfConfig, KdfParams};
 use aes::cipher::{KeyIvInit, StreamCipher};
 use pbkdf2::pbkdf2_hmac;
 use rand::{CryptoRng, RngCore};
@@ -17,6 +18,84 @@ use zeroize::Zeroize;
 use sha3::Keccak256;
 
 type Aes128Ctr = ctr::Ctr64BE<aes::Aes128>;
+
+/// Type-safe keystore format version.
+///
+/// This enum represents the supported keystore versions with type safety,
+/// preventing invalid version numbers and making the API clearer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeystoreVersion {
+    /// Version 3 - Ethereum Legacy Format
+    ///
+    /// The original Web3 Secret Storage Definition format used by Ethereum.
+    /// - Always uses Keccak256 for MAC calculation
+    /// - No `chain` field in the JSON
+    /// - Maintains compatibility with existing Ethereum tooling
+    V3,
+
+    /// Version 4 - Multi-Chain Format
+    ///
+    /// Extended format supporting multiple blockchains (Ethereum, Solana, etc.).
+    /// - Includes a `chain` field to identify the blockchain
+    /// - Uses chain-specific MAC algorithms:
+    ///   - `chain="ethereum"` → Keccak256 (for Ethereum compatibility)
+    ///   - `chain="solana"` or others → SHA256
+    V4,
+}
+
+impl KeystoreVersion {
+    /// Converts the version to its numeric representation.
+    #[inline]
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        match self {
+            KeystoreVersion::V3 => 3,
+            KeystoreVersion::V4 => 4,
+        }
+    }
+
+    /// Creates a KeystoreVersion from a u32 value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the version number is not supported.
+    #[inline]
+    pub const fn from_u32(version: u32) -> Result<Self> {
+        match version {
+            3 => Ok(KeystoreVersion::V3),
+            4 => Ok(KeystoreVersion::V4),
+            _ => Err(KeystoreError::UnsupportedVersion(version)),
+        }
+    }
+
+    /// Returns `true` if this is the Ethereum legacy format (V3).
+    #[inline]
+    #[must_use]
+    pub const fn is_v3(self) -> bool {
+        matches!(self, KeystoreVersion::V3)
+    }
+
+    /// Returns `true` if this is the multi-chain format (V4).
+    #[inline]
+    #[must_use]
+    pub const fn is_v4(self) -> bool {
+        matches!(self, KeystoreVersion::V4)
+    }
+}
+
+impl Default for KeystoreVersion {
+    /// Returns the default version (V4 - multi-chain format).
+    #[inline]
+    fn default() -> Self {
+        KeystoreVersion::V4
+    }
+}
+
+impl std::fmt::Display for KeystoreVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "v{}", self.as_u32())
+    }
+}
 
 /// Keystore version 3 - Ethereum Legacy Format
 ///
@@ -301,6 +380,94 @@ impl<K: ChainKey> Keystore<K> {
         Self::from_key_with_rng(&mut rand::thread_rng(), key, password)
     }
 
+    /// Creates a new keystore with custom KDF configuration.
+    ///
+    /// This allows you to choose different KDF parameters based on your security
+    /// and performance requirements.
+    ///
+    /// # Arguments
+    ///
+    /// * `password` - Password to encrypt the keystore
+    /// * `config` - KDF configuration (use presets like `KdfConfig::custom_scrypt(4, 8, 1)`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKeystore, KdfConfig};
+    ///
+    /// // Fast for testing or interactive applications
+    /// let keystore = EthereumKeystore::new_with_config(
+    ///     "password",
+    ///     KdfConfig::custom_scrypt(4, 8, 1)
+    /// ).unwrap();
+    ///
+    /// // Strong for cold storage
+    /// let keystore = EthereumKeystore::new_with_config(
+    ///     "password",
+    ///     KdfConfig::scrypt_sensitive()
+    /// ).unwrap();
+    /// # }
+    /// ```
+    pub fn new_with_config<S: AsRef<str>>(password: S, config: KdfConfig) -> Result<Self> {
+        Self::new_with_rng_and_config(&mut rand::thread_rng(), password, config)
+    }
+
+    /// Creates a keystore from an existing key with custom KDF configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The blockchain key to encrypt
+    /// * `password` - Password to encrypt the keystore
+    /// * `config` - KDF configuration
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKey, EthereumKeystore, KdfConfig, ChainKey};
+    /// use rand::thread_rng;
+    ///
+    /// let mut rng = thread_rng();
+    /// let key = EthereumKey::generate(&mut rng);
+    ///
+    /// let keystore = EthereumKeystore::from_key_with_config(
+    ///     key,
+    ///     "password",
+    ///     KdfConfig::custom_scrypt(4, 8, 1)
+    /// ).unwrap();
+    /// # }
+    /// ```
+    pub fn from_key_with_config<S: AsRef<str>>(
+        key: K,
+        password: S,
+        config: KdfConfig,
+    ) -> Result<Self> {
+        Self::from_key_with_rng_and_config(&mut rand::thread_rng(), key, password, config)
+    }
+
+    /// Creates a keystore from an existing key using a custom RNG and KDF configuration.
+    ///
+    /// This is the most flexible constructor, allowing full control over randomness
+    /// and key derivation parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `rng` - Cryptographically secure random number generator
+    /// * `key` - The blockchain key to encrypt
+    /// * `password` - Password to encrypt the keystore
+    /// * `config` - KDF configuration
+    pub fn new_with_rng_and_config<R: RngCore + CryptoRng, S: AsRef<str>>(
+        rng: &mut R,
+        password: S,
+        config: KdfConfig,
+    ) -> Result<Self> {
+        let key = K::generate(rng);
+        Self::from_key_with_rng_and_config(rng, key, password, config)
+    }
+
     /// Creates a keystore from an existing key using a custom RNG.
     ///
     /// # Arguments
@@ -313,24 +480,76 @@ impl<K: ChainKey> Keystore<K> {
         key: K,
         password: S,
     ) -> Result<Self> {
+        Self::from_key_with_rng_and_config(rng, key, password, KdfConfig::default())
+    }
+
+    /// Creates a keystore from an existing key using a custom RNG and KDF configuration.
+    ///
+    /// This is the most flexible constructor, allowing full control over randomness
+    /// and key derivation parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `rng` - Cryptographically secure random number generator
+    /// * `key` - The blockchain key to encrypt
+    /// * `password` - Password to encrypt the keystore
+    /// * `config` - KDF configuration
+    pub fn from_key_with_rng_and_config<R: RngCore + CryptoRng, S: AsRef<str>>(
+        rng: &mut R,
+        key: K,
+        password: S,
+        config: KdfConfig,
+    ) -> Result<Self> {
         let mut salt = Self::generate_random_bytes(rng, DEFAULT_KEY_SIZE);
 
-        let mut derived_key = vec![0u8; DEFAULT_KDF_PARAMS_DKLEN as usize];
-        let scrypt_params = ScryptParams::new(
-            DEFAULT_KDF_PARAMS_LOG_N,
-            DEFAULT_KDF_PARAMS_R,
-            DEFAULT_KDF_PARAMS_P,
-            DEFAULT_KEY_SIZE,
-        )
-        .map_err(|e| KeystoreError::CryptoError(format!("Invalid scrypt params: {e}")))?;
+        // Derive key using configured KDF
+        let (mut derived_key, kdfparams) = match config.params() {
+            KdfParams::Scrypt { log_n, r, p, dklen } => {
+                let mut derived = vec![0u8; dklen as usize];
+                let scrypt_params =
+                    ScryptParams::new(log_n, r, p, dklen as usize).map_err(|e| {
+                        KeystoreError::CryptoError(format!("Invalid scrypt params: {e}"))
+                    })?;
 
-        scrypt(
-            password.as_ref().as_bytes(),
-            &salt,
-            &scrypt_params,
-            &mut derived_key,
-        )
-        .map_err(|e| KeystoreError::CryptoError(format!("Scrypt derivation failed: {e}")))?;
+                scrypt(
+                    password.as_ref().as_bytes(),
+                    &salt,
+                    &scrypt_params,
+                    &mut derived,
+                )
+                .map_err(|e| {
+                    KeystoreError::CryptoError(format!("Scrypt derivation failed: {e}"))
+                })?;
+
+                let kdf_params = KdfparamsType::Scrypt {
+                    dklen,
+                    n: 1u32 << log_n, // Convert log_n to N
+                    r,
+                    p,
+                    salt: hex::encode(&salt),
+                };
+
+                (derived, kdf_params)
+            }
+            KdfParams::Pbkdf2 { iterations, dklen } => {
+                let mut derived = vec![0u8; dklen as usize];
+                pbkdf2_hmac::<Sha256>(
+                    password.as_ref().as_bytes(),
+                    &salt,
+                    iterations,
+                    &mut derived,
+                );
+
+                let kdf_params = KdfparamsType::Pbkdf2 {
+                    dklen,
+                    c: iterations,
+                    prf: SUPPORTED_PRF.to_string(),
+                    salt: hex::encode(&salt),
+                };
+
+                (derived, kdf_params)
+            }
+        };
 
         let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
         let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
@@ -350,13 +569,7 @@ impl<K: ChainKey> Keystore<K> {
                 iv: hex::encode(&iv),
             },
             ciphertext: hex::encode(&ciphertext),
-            kdfparams: KdfparamsType::Scrypt {
-                dklen: DEFAULT_KDF_PARAMS_DKLEN as u32,
-                n: SCRYPT_N,
-                p: DEFAULT_KDF_PARAMS_P,
-                r: DEFAULT_KDF_PARAMS_R,
-                salt: hex::encode(&salt),
-            },
+            kdfparams,
             mac: hex::encode(&mac),
         };
 
@@ -570,6 +783,27 @@ impl<K: ChainKey> Keystore<K> {
         self.version
     }
 
+    /// Returns the keystore version as a type-safe enum.
+    ///
+    /// This is a safer alternative to `version()` that returns a `KeystoreVersion` enum
+    /// instead of a raw u32.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKeystore, KeystoreVersion};
+    ///
+    /// let keystore = EthereumKeystore::new("password").unwrap();
+    /// assert_eq!(keystore.version_enum().unwrap(), KeystoreVersion::V4);
+    /// # }
+    /// ```
+    #[inline]
+    pub fn version_enum(&self) -> Result<KeystoreVersion> {
+        KeystoreVersion::from_u32(self.version)
+    }
+
     /// Returns the chain identifier if present.
     #[inline]
     #[must_use]
@@ -584,9 +818,257 @@ impl<K: ChainKey> Keystore<K> {
     }
 }
 
+/// Builder for constructing keystores with custom configuration.
+///
+/// Provides a flexible API for creating keystores with various options:
+/// - Custom or random keys
+/// - Custom RNG for deterministic testing
+/// - Custom KDF configuration
+/// - Custom UUID
+/// - Custom version
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "ethereum")]
+/// # {
+/// use crypto_keystore_rs::{EthereumKey, EthereumKeystore, KeystoreBuilder, KdfConfig, ChainKey};
+/// use rand::thread_rng();
+///
+/// // Simple usage with defaults
+/// let keystore = KeystoreBuilder::<EthereumKey>::new()
+///     .with_random_key()
+///     .build("password")
+///     .unwrap();
+///
+/// // Advanced usage with custom config
+/// let mut rng = thread_rng();
+/// let key = EthereumKey::generate(&mut rng);
+///
+/// let keystore = KeystoreBuilder::new()
+///     .with_key(key)
+///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
+///     .build("password")
+///     .unwrap();
+/// # }
+/// ```
+pub struct KeystoreBuilder<K: ChainKey> {
+    key: Option<K>,
+    kdf_config: KdfConfig,
+    version: u32,
+    uuid: Option<String>,
+}
+
+impl<K: ChainKey> KeystoreBuilder<K> {
+    /// Creates a new keystore builder with default settings.
+    ///
+    /// Defaults:
+    /// - No key (must be set with `with_key()` or `with_random_key()`)
+    /// - KDF: Scrypt with N=2^18 (secure defaults)
+    /// - Version: 4 (multi-chain format)
+    /// - UUID: Auto-generated
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        KeystoreBuilder {
+            key: None,
+            kdf_config: KdfConfig::default(),
+            version: VERSION_4,
+            uuid: None,
+        }
+    }
+
+    /// Sets the key to encrypt.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, ChainKey};
+    /// use rand::thread_rng();
+    ///
+    /// let mut rng = thread_rng();
+    /// let key = EthereumKey::generate(&mut rng);
+    ///
+    /// let keystore = KeystoreBuilder::new()
+    ///     .with_key(key)
+    ///     .build("password")
+    ///     .unwrap();
+    /// # }
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn with_key(mut self, key: K) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    /// Generates a new random key using the system RNG.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder};
+    ///
+    /// let keystore = KeystoreBuilder::<EthereumKey>::new()
+    ///     .with_random_key()
+    ///     .build("password")
+    ///     .unwrap();
+    /// # }
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn with_random_key(mut self) -> Self {
+        self.key = Some(K::generate(&mut rand::thread_rng()));
+        self
+    }
+
+    /// Sets the KDF configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, KdfConfig};
+    ///
+    /// // Fast for testing
+    /// let keystore = KeystoreBuilder::<EthereumKey>::new()
+    ///     .with_random_key()
+    ///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
+    ///     .build("password")
+    ///     .unwrap();
+    ///
+    /// // Strong for cold storage
+    /// let keystore = KeystoreBuilder::<EthereumKey>::new()
+    ///     .with_random_key()
+    ///     .with_kdf_config(KdfConfig::scrypt_sensitive())
+    ///     .build("password")
+    ///     .unwrap();
+    /// # }
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn with_kdf_config(mut self, config: KdfConfig) -> Self {
+        self.kdf_config = config;
+        self
+    }
+
+    /// Sets the keystore format version.
+    ///
+    /// - [`VERSION_3`] (3) - Ethereum legacy format
+    /// - [`VERSION_4`] (4) - Multi-chain format (recommended)
+    #[inline]
+    #[must_use]
+    pub fn with_version(mut self, version: u32) -> Self {
+        self.version = version;
+        self
+    }
+
+    /// Sets the keystore format version using a type-safe enum.
+    ///
+    /// This is a safer alternative to `with_version()` that accepts a `KeystoreVersion` enum
+    /// instead of a raw u32.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, KeystoreVersion};
+    ///
+    /// let keystore = KeystoreBuilder::<EthereumKey>::new()
+    ///     .with_random_key()
+    ///     .with_version_enum(KeystoreVersion::V3)
+    ///     .build("password")
+    ///     .unwrap();
+    /// # }
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn with_version_enum(mut self, version: KeystoreVersion) -> Self {
+        self.version = version.as_u32();
+        self
+    }
+
+    /// Sets a custom UUID for the keystore.
+    ///
+    /// By default, a random UUID v4 is generated. This method allows
+    /// setting a specific UUID for testing or migration purposes.
+    ///
+    /// # Arguments
+    ///
+    /// * `uuid` - A valid UUID string
+    #[inline]
+    #[must_use]
+    pub fn with_uuid<S: Into<String>>(mut self, uuid: S) -> Self {
+        self.uuid = Some(uuid.into());
+        self
+    }
+
+    /// Builds the keystore by encrypting the key with the given password.
+    ///
+    /// # Arguments
+    ///
+    /// * `password` - Password to encrypt the keystore
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No key was set (must call `with_key()` or `with_random_key()` first)
+    /// - KDF parameters are invalid
+    /// - Encryption fails
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder};
+    ///
+    /// let keystore = KeystoreBuilder::<EthereumKey>::new()
+    ///     .with_random_key()
+    ///     .build("my_secure_password")
+    ///     .unwrap();
+    /// # }
+    /// ```
+    pub fn build<S: AsRef<str>>(self, password: S) -> Result<Keystore<K>> {
+        let key = self
+            .key
+            .ok_or_else(|| KeystoreError::CryptoError("No key set in builder".into()))?;
+
+        // Build the keystore using the internal method
+        let mut keystore = Keystore::from_key_with_rng_and_config(
+            &mut rand::thread_rng(),
+            key,
+            password,
+            self.kdf_config,
+        )?;
+
+        // Apply custom settings if provided
+        if let Some(uuid) = self.uuid {
+            keystore.id = uuid;
+        }
+        keystore.version = self.version;
+
+        Ok(keystore)
+    }
+}
+
+impl<K: ChainKey> Default for KeystoreBuilder<K> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kdf_config::KdfConfig;
 
     #[derive(Debug, Clone)]
     struct TestKey(Vec<u8>);
@@ -629,7 +1111,9 @@ mod tests {
     fn test_keystore_new() {
         let password = "test_password";
 
-        let keystore = Keystore::<TestKey>::new(password).unwrap();
+        let keystore =
+            Keystore::<TestKey>::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1))
+                .unwrap();
         assert_eq!(keystore.version, VERSION_4);
         assert_eq!(keystore.chain, Some("test".to_string()));
     }
@@ -638,7 +1122,9 @@ mod tests {
     fn test_keystore_encrypt_decrypt() {
         let password = "test_password";
 
-        let keystore = Keystore::<TestKey>::new(password).unwrap();
+        let keystore =
+            Keystore::<TestKey>::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1))
+                .unwrap();
         let original_key = keystore.key().unwrap().0.clone();
 
         let json = serde_json::to_string(&keystore).unwrap();
@@ -651,7 +1137,9 @@ mod tests {
     fn test_keystore_wrong_password() {
         let password = "correct_password";
 
-        let keystore = Keystore::<TestKey>::new(password).unwrap();
+        let keystore =
+            Keystore::<TestKey>::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1))
+                .unwrap();
         let json = serde_json::to_string(&keystore).unwrap();
 
         let result = Keystore::<TestKey>::from_json(&json, "wrong_password");

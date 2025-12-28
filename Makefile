@@ -10,12 +10,12 @@ clean:
 	cargo clean
 
 test:
-	cargo test --features test-utils
+	cargo nextest run --features test-utils
 
 check:
 	cargo fmt --check
 	cargo clippy -- -D warnings
-	cargo test --features test-utils
+	cargo nextest run --features test-utils
 	cargo build
 
 fix:

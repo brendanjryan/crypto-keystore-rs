@@ -1,23 +1,41 @@
 mod common;
 
 use proptest::prelude::*;
+use proptest::test_runner::Config as ProptestConfig;
 
 #[cfg(feature = "ethereum")]
-use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore};
+use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore, KdfConfig};
 
 #[cfg(feature = "solana")]
 use crypto_keystore_rs::SolanaKeystore;
 
+#[cfg(all(feature = "solana", not(feature = "ethereum")))]
+use crypto_keystore_rs::KdfConfig;
+
 // ==========================
 // Property Tests for Keystore
 // ==========================
+//
+// Note: These tests use:
+// - 25 cases (vs default 256) for good coverage with reasonable time
+// - N=2^4 (16 iterations) for ultra-fast testing - tests correctness, not security
+// This keeps each test under 5 seconds while still validating crypto logic.
+
+// Ultra-fast config for property testing - NOT secure, only for testing logic
+fn test_kdf_config() -> KdfConfig {
+    KdfConfig::custom_scrypt(4, 8, 1) // N=16
+}
 
 #[cfg(feature = "ethereum")]
 proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 25,
+        .. ProptestConfig::default()
+    })]
     #[test]
     fn keystore_roundtrip_preserves_address(password in "[a-zA-Z0-9]{8,32}") {
         // Create keystore with random password
-        let keystore = EthereumKeystore::new(&password)?;
+        let keystore = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
         let original_address = keystore.key()?.address();
 
         // Serialize and deserialize
@@ -31,8 +49,8 @@ proptest! {
     #[test]
     fn encryption_always_uses_unique_iv_and_uuid(password in "[a-zA-Z0-9]{8,32}") {
         // Create two keystores with the same password
-        let ks1 = EthereumKeystore::new(&password)?;
-        let ks2 = EthereumKeystore::new(&password)?;
+        let ks1 = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
+        let ks2 = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
 
         // They should have different UUIDs (random)
         prop_assert_ne!(ks1.id(), ks2.id());
@@ -50,7 +68,7 @@ proptest! {
     ) {
         prop_assume!(correct_pw != wrong_pw);
 
-        let keystore = EthereumKeystore::new(&correct_pw)?;
+        let keystore = EthereumKeystore::new_with_config(&correct_pw, test_kdf_config())?;
         let json = keystore.to_json()?;
 
         // Wrong password should always fail
@@ -62,7 +80,7 @@ proptest! {
     fn password_length_does_not_affect_correctness(password_len in 1usize..=128) {
         let password = "a".repeat(password_len);
 
-        let keystore = EthereumKeystore::new(&password)?;
+        let keystore = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
         let address = keystore.key()?.address();
         let json = keystore.to_json()?;
 
@@ -73,7 +91,7 @@ proptest! {
 
     #[test]
     fn keystore_metadata_is_consistent(password in "[a-zA-Z0-9]{8,32}") {
-        let keystore = EthereumKeystore::new(&password)?;
+        let keystore = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
 
         // Metadata should be consistent
         prop_assert!(keystore.is_decrypted());
@@ -91,9 +109,13 @@ proptest! {
 
 #[cfg(feature = "solana")]
 proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 25,
+        .. ProptestConfig::default()
+    })]
     #[test]
     fn solana_keystore_roundtrip_preserves_address(password in "[a-zA-Z0-9]{8,32}") {
-        let keystore = SolanaKeystore::new(&password)?;
+        let keystore = SolanaKeystore::new_with_config(&password, test_kdf_config())?;
         let original_address = keystore.key()?.address();
 
         let json = keystore.to_json()?;
@@ -109,7 +131,7 @@ proptest! {
     ) {
         prop_assume!(correct_pw != wrong_pw);
 
-        let keystore = SolanaKeystore::new(&correct_pw)?;
+        let keystore = SolanaKeystore::new_with_config(&correct_pw, test_kdf_config())?;
         let json = keystore.to_json()?;
 
         let result = SolanaKeystore::from_json(&json, &wrong_pw);
@@ -123,6 +145,10 @@ proptest! {
 
 #[cfg(feature = "ethereum")]
 proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 25,
+        .. ProptestConfig::default()
+    })]
     #[test]
     fn password_with_special_characters_works(
         alphanumeric in "[a-zA-Z0-9]{1,20}",
@@ -130,7 +156,7 @@ proptest! {
     ) {
         let password = format!("{}{}", alphanumeric, special);
 
-        let keystore = EthereumKeystore::new(&password)?;
+        let keystore = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
         let address = keystore.key()?.address();
         let json = keystore.to_json()?;
 
@@ -144,8 +170,8 @@ proptest! {
         let key = EthereumKey::generate(&mut rand::thread_rng());
         let address = key.address();
 
-        let ks1 = EthereumKeystore::from_key(key.clone(), &password)?;
-        let ks2 = EthereumKeystore::from_key(key, &password)?;
+        let ks1 = EthereumKeystore::from_key_with_config(key.clone(), &password, test_kdf_config())?;
+        let ks2 = EthereumKeystore::from_key_with_config(key, &password, test_kdf_config())?;
 
         let json1 = ks1.to_json()?;
         let json2 = ks2.to_json()?;

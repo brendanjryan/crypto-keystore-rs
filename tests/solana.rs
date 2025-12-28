@@ -5,14 +5,19 @@ mod common;
 use common::{
     assert_valid_solana_address, create_temp_keystore_dir, TEST_PASSWORD, TEST_WRONG_PASSWORD,
 };
-use crypto_keystore_rs::{ChainKey, SolanaKey, SolanaKeystore};
+use crypto_keystore_rs::{ChainKey, KdfConfig, SolanaKey, SolanaKeystore};
 use rand::thread_rng;
+
+// Ultra-fast KDF config for tests - N=2^4 (16 iterations)
+fn test_kdf_config() -> KdfConfig {
+    KdfConfig::custom_scrypt(4, 8, 1)
+}
 
 #[test]
 fn creates_new_keystore_and_loads_with_correct_password() {
     let password = TEST_PASSWORD;
 
-    let keystore = SolanaKeystore::new(password).unwrap();
+    let keystore = SolanaKeystore::new_with_config(password, test_kdf_config()).unwrap();
     let original_address = keystore.key().unwrap().address();
     assert_valid_solana_address(&original_address);
 
@@ -29,7 +34,7 @@ fn creates_new_keystore_and_loads_with_correct_password() {
 fn fails_to_load_keystore_with_incorrect_password() {
     let password = TEST_PASSWORD;
 
-    let keystore = SolanaKeystore::new(password).unwrap();
+    let keystore = SolanaKeystore::new_with_config(password, test_kdf_config()).unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
@@ -44,7 +49,7 @@ fn fails_to_load_keystore_with_incorrect_password() {
 fn serializes_keystore_with_correct_json_format() {
     let password = "TEST_PASSWORD";
 
-    let keystore = SolanaKeystore::new(password).unwrap();
+    let keystore = SolanaKeystore::new_with_config(password, test_kdf_config()).unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
@@ -67,7 +72,8 @@ fn creates_keystore_from_existing_solana_key() {
     let original_key = SolanaKey::generate(&mut rng);
     let original_address = original_key.address();
 
-    let keystore = SolanaKeystore::from_key(original_key, password).unwrap();
+    let keystore =
+        SolanaKeystore::from_key_with_config(original_key, password, test_kdf_config()).unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();
@@ -82,8 +88,8 @@ fn creates_keystore_from_existing_solana_key() {
 fn generates_unique_addresses_for_multiple_keystores() {
     let password = "TEST_PASSWORD";
 
-    let keystore1 = SolanaKeystore::new(password).unwrap();
-    let keystore2 = SolanaKeystore::new(password).unwrap();
+    let keystore1 = SolanaKeystore::new_with_config(password, test_kdf_config()).unwrap();
+    let keystore2 = SolanaKeystore::new_with_config(password, test_kdf_config()).unwrap();
 
     let addr1 = keystore1.key().unwrap().address();
     let addr2 = keystore2.key().unwrap().address();
@@ -101,7 +107,8 @@ fn stores_and_restores_full_keypair_correctly() {
     let keystore_bytes = original_key.to_keystore_bytes();
     assert_eq!(keystore_bytes.len(), 64);
 
-    let keystore = SolanaKeystore::from_key(original_key, password).unwrap();
+    let keystore =
+        SolanaKeystore::from_key_with_config(original_key, password, test_kdf_config()).unwrap();
 
     let dir = create_temp_keystore_dir();
     let uuid = keystore.save_to_file(dir.path()).unwrap();

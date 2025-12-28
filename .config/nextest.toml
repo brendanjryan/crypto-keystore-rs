@@ -1,0 +1,10 @@
+[profile.default]
+# Show detailed output with timing information
+status-level = "pass"
+final-status-level = "slow"
+
+# Mark tests as slow if they take longer than 10 seconds
+# Terminate tests that take longer than 60 seconds
+[profile.default.slow-timeout]
+period = "10s"
+terminate-after = 60

@@ -3,7 +3,7 @@ mod common;
 use common::TEST_PASSWORD;
 
 #[cfg(feature = "ethereum")]
-use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore};
+use crypto_keystore_rs::{ChainKey, EthereumKey, EthereumKeystore, KdfConfig};
 
 #[cfg(feature = "solana")]
 use crypto_keystore_rs::{SolanaKey, SolanaKeystore};
@@ -84,7 +84,10 @@ fn concurrent_keystore_creation_produces_unique_results() {
     let handles: Vec<_> = (0..5)
         .map(|_| {
             let password = Arc::clone(&password);
-            thread::spawn(move || EthereumKeystore::new(&*password).unwrap())
+            thread::spawn(move || {
+                EthereumKeystore::new_with_config(&*password, KdfConfig::scrypt_interactive())
+                    .unwrap()
+            })
         })
         .collect();
 
@@ -123,7 +126,14 @@ fn concurrent_keystore_encryption_from_same_key() {
         .map(|_| {
             let key = Arc::clone(&key);
             let password = Arc::clone(&password);
-            thread::spawn(move || EthereumKeystore::from_key((*key).clone(), &*password).unwrap())
+            thread::spawn(move || {
+                EthereumKeystore::from_key_with_config(
+                    (*key).clone(),
+                    &*password,
+                    KdfConfig::scrypt_interactive(),
+                )
+                .unwrap()
+            })
         })
         .collect();
 
@@ -146,7 +156,8 @@ fn concurrent_keystore_decryption_is_safe() {
     use std::thread;
 
     // Create a keystore
-    let keystore = EthereumKeystore::new(TEST_PASSWORD).unwrap();
+    let keystore =
+        EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let json = keystore.to_json().unwrap();
     let expected_address = keystore.key().unwrap().address();
 
