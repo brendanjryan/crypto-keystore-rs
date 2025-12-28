@@ -136,14 +136,19 @@ fn new_with_rng_produces_deterministic_results_with_same_seed() {
     let mut rng1 = StdRng::seed_from_u64(42);
     let mut rng2 = StdRng::seed_from_u64(42);
 
-    let ks1 = EthereumKeystore::new_with_rng_and_config(
+    let key1 = EthereumKey::generate(&mut rng1);
+    let key2 = EthereumKey::generate(&mut rng2);
+
+    let ks1 = EthereumKeystore::from_key_with_rng_and_config(
         &mut rng1,
+        key1,
         TEST_PASSWORD,
         KdfConfig::scrypt_interactive(),
     )
     .unwrap();
-    let ks2 = EthereumKeystore::new_with_rng_and_config(
+    let ks2 = EthereumKeystore::from_key_with_rng_and_config(
         &mut rng2,
+        key2,
         TEST_PASSWORD,
         KdfConfig::scrypt_interactive(),
     )
@@ -161,14 +166,19 @@ fn new_with_rng_produces_different_results_with_different_seeds() {
     let mut rng1 = StdRng::seed_from_u64(42);
     let mut rng2 = StdRng::seed_from_u64(99);
 
-    let ks1 = EthereumKeystore::new_with_rng_and_config(
+    let key1 = EthereumKey::generate(&mut rng1);
+    let key2 = EthereumKey::generate(&mut rng2);
+
+    let ks1 = EthereumKeystore::from_key_with_rng_and_config(
         &mut rng1,
+        key1,
         TEST_PASSWORD,
         KdfConfig::scrypt_interactive(),
     )
     .unwrap();
-    let ks2 = EthereumKeystore::new_with_rng_and_config(
+    let ks2 = EthereumKeystore::from_key_with_rng_and_config(
         &mut rng2,
+        key2,
         TEST_PASSWORD,
         KdfConfig::scrypt_interactive(),
     )

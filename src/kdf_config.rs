@@ -227,10 +227,20 @@ impl KdfConfig {
 }
 
 impl Default for KdfConfig {
-    /// Returns the default KDF configuration (Scrypt with N=2^18).
+    /// Returns the default KDF configuration.
+    ///
+    /// - Production: Scrypt with N=2^18 (secure)
+    /// - Tests/doctests: Scrypt with N=2^4 (fast)
     #[inline]
     fn default() -> Self {
-        Self::scrypt_default()
+        #[cfg(test)]
+        {
+            Self::custom_scrypt(4, 8, 1)
+        }
+        #[cfg(not(test))]
+        {
+            Self::scrypt_default()
+        }
     }
 }
 
@@ -331,8 +341,9 @@ mod tests {
     }
 
     #[test]
-    fn default_trait_returns_scrypt_default() {
+    fn default_trait_returns_fast_config_in_tests() {
         let config = KdfConfig::default();
-        assert_eq!(config, KdfConfig::scrypt_default());
+        // In tests, default uses fast params (N=2^4)
+        assert_eq!(config, KdfConfig::custom_scrypt(4, 8, 1));
     }
 }

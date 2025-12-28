@@ -1,5 +1,6 @@
 use crate::chains::ChainKey;
 use crate::error::{KeystoreError, Result};
+use crate::impl_chain_key_boilerplate;
 use k256::ecdsa::SigningKey;
 use rand::{CryptoRng, RngCore};
 use sha3::{Digest, Keccak256};
@@ -13,6 +14,13 @@ const ADDRESS_HASH_OFFSET: usize = 12;
 #[derive(Clone)]
 pub struct EthereumKey {
     signing_key: SigningKey,
+}
+
+impl_chain_key_boilerplate! {
+    EthereumKey,
+    chain_id = "ethereum",
+    secret_size = 32,
+    keystore_size = 32
 }
 
 impl EthereumKey {
@@ -86,25 +94,11 @@ impl ChainKey for EthereumKey {
     }
 }
 
-impl std::fmt::Debug for EthereumKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EthereumKey")
-            .field("address", &self.address())
-            .finish()
-    }
-}
-
 impl TryFrom<&[u8]> for EthereumKey {
     type Error = crate::error::KeystoreError;
 
     fn try_from(bytes: &[u8]) -> Result<Self> {
         Self::from_keystore_bytes(bytes)
-    }
-}
-
-impl std::fmt::Display for EthereumKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.address())
     }
 }
 

@@ -1,6 +1,8 @@
 use crate::error::Result;
 use rand::{CryptoRng, RngCore};
 
+pub mod macros;
+
 #[cfg(feature = "ethereum")]
 pub mod ethereum;
 #[cfg(feature = "solana")]

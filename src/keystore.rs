@@ -129,9 +129,13 @@ pub const VERSION_4: u32 = 4;
 /// ```
 /// # #[cfg(feature = "ethereum")]
 /// # {
-/// use crypto_keystore_rs::{EthereumKeystore, ChainKey};
+/// use crypto_keystore_rs::{EthereumKeystore, ChainKey, KdfConfig};
 ///
-/// let keystore = EthereumKeystore::new("my_password").unwrap();
+/// // Use fast KDF for doctests
+/// let keystore = EthereumKeystore::new_with_config(
+///     "my_password",
+///     KdfConfig::custom_scrypt(4, 8, 1)
+/// ).unwrap();
 /// println!("Address: {}", keystore.key().unwrap().address());
 /// # }
 /// ```
@@ -218,12 +222,6 @@ enum KdfparamsType {
 }
 
 impl<K: ChainKey> Keystore<K> {
-    /// Helper to decode hex string with context for better error messages.
-    #[inline]
-    fn decode_hex(hex_str: &str, context: &str) -> Result<Vec<u8>> {
-        hex::decode(hex_str).map_err(|e| KeystoreError::HexError(format!("Invalid {context}: {e}")))
-    }
-
     /// Helper to generate random bytes using a cryptographically secure RNG.
     #[inline]
     fn generate_random_bytes<R: RngCore + CryptoRng>(rng: &mut R, len: usize) -> Vec<u8> {
@@ -247,7 +245,8 @@ impl<K: ChainKey> Keystore<K> {
                     )));
                 }
 
-                let salt_bytes = Self::decode_hex(salt, "KDF salt")?;
+                let salt_bytes = hex::decode(salt)
+                    .map_err(|e| KeystoreError::HexError(format!("Invalid KDF salt: {e}")))?;
 
                 let mut key = vec![0u8; *dklen as usize];
                 pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt_bytes, *c, &mut key);
@@ -260,9 +259,9 @@ impl<K: ChainKey> Keystore<K> {
                 p,
                 salt,
             } => {
-                let salt_bytes = Self::decode_hex(salt, "KDF salt")?;
+                let salt_bytes = hex::decode(salt)
+                    .map_err(|e| KeystoreError::HexError(format!("Invalid KDF salt: {e}")))?;
 
-                // Validate n is a power of 2 and compute log2 using integer operations
                 if !n.is_power_of_two() {
                     return Err(KeystoreError::InvalidKdfParams(format!(
                         "Scrypt n parameter must be a power of 2, got {n}"
@@ -332,40 +331,23 @@ impl<K: ChainKey> Keystore<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::EthereumKeystore;
+    /// use crypto_keystore_rs::{EthereumKeystore, KdfConfig};
     ///
-    /// let keystore = EthereumKeystore::new("my_secure_password").unwrap();
+    /// // Use fast KDF for doctests
+    /// let keystore = EthereumKeystore::new_with_config(
+    ///     "my_secure_password",
+    ///     KdfConfig::custom_scrypt(4, 8, 1)
+    /// ).unwrap();
     /// # }
     /// ```
     pub fn new<S: AsRef<str>>(password: S) -> Result<Self> {
-        Self::new_with_rng(&mut rand::thread_rng(), password)
-    }
-
-    /// Creates a new keystore with a randomly generated key using a custom RNG.
-    ///
-    /// # Arguments
-    ///
-    /// * `rng` - Cryptographically secure random number generator
-    /// * `password` - Password to encrypt the keystore
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[cfg(feature = "ethereum")]
-    /// # {
-    /// use crypto_keystore_rs::EthereumKeystore;
-    /// use rand::thread_rng;
-    ///
-    /// let mut rng = thread_rng();
-    /// let keystore = EthereumKeystore::new_with_rng(&mut rng, "my_secure_password").unwrap();
-    /// # }
-    /// ```
-    pub fn new_with_rng<R: RngCore + CryptoRng, S: AsRef<str>>(
-        rng: &mut R,
-        password: S,
-    ) -> Result<Self> {
-        let key = K::generate(rng);
-        Self::from_key_with_rng(rng, key, password)
+        let key = K::generate(&mut rand::thread_rng());
+        Self::from_key_with_rng_and_config(
+            &mut rand::thread_rng(),
+            key,
+            password,
+            KdfConfig::default(),
+        )
     }
 
     /// Creates a keystore from an existing key.
@@ -377,7 +359,12 @@ impl<K: ChainKey> Keystore<K> {
     /// * `key` - The blockchain key to encrypt
     /// * `password` - Password to encrypt the keystore
     pub fn from_key<S: AsRef<str>>(key: K, password: S) -> Result<Self> {
-        Self::from_key_with_rng(&mut rand::thread_rng(), key, password)
+        Self::from_key_with_rng_and_config(
+            &mut rand::thread_rng(),
+            key,
+            password,
+            KdfConfig::default(),
+        )
     }
 
     /// Creates a new keystore with custom KDF configuration.
@@ -411,7 +398,8 @@ impl<K: ChainKey> Keystore<K> {
     /// # }
     /// ```
     pub fn new_with_config<S: AsRef<str>>(password: S, config: KdfConfig) -> Result<Self> {
-        Self::new_with_rng_and_config(&mut rand::thread_rng(), password, config)
+        let key = K::generate(&mut rand::thread_rng());
+        Self::from_key_with_rng_and_config(&mut rand::thread_rng(), key, password, config)
     }
 
     /// Creates a keystore from an existing key with custom KDF configuration.
@@ -459,41 +447,6 @@ impl<K: ChainKey> Keystore<K> {
     /// * `key` - The blockchain key to encrypt
     /// * `password` - Password to encrypt the keystore
     /// * `config` - KDF configuration
-    pub fn new_with_rng_and_config<R: RngCore + CryptoRng, S: AsRef<str>>(
-        rng: &mut R,
-        password: S,
-        config: KdfConfig,
-    ) -> Result<Self> {
-        let key = K::generate(rng);
-        Self::from_key_with_rng_and_config(rng, key, password, config)
-    }
-
-    /// Creates a keystore from an existing key using a custom RNG.
-    ///
-    /// # Arguments
-    ///
-    /// * `rng` - Cryptographically secure random number generator
-    /// * `key` - The blockchain key to encrypt
-    /// * `password` - Password to encrypt the keystore
-    pub fn from_key_with_rng<R: RngCore + CryptoRng, S: AsRef<str>>(
-        rng: &mut R,
-        key: K,
-        password: S,
-    ) -> Result<Self> {
-        Self::from_key_with_rng_and_config(rng, key, password, KdfConfig::default())
-    }
-
-    /// Creates a keystore from an existing key using a custom RNG and KDF configuration.
-    ///
-    /// This is the most flexible constructor, allowing full control over randomness
-    /// and key derivation parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `rng` - Cryptographically secure random number generator
-    /// * `key` - The blockchain key to encrypt
-    /// * `password` - Password to encrypt the keystore
-    /// * `config` - KDF configuration
     pub fn from_key_with_rng_and_config<R: RngCore + CryptoRng, S: AsRef<str>>(
         rng: &mut R,
         key: K,
@@ -502,7 +455,6 @@ impl<K: ChainKey> Keystore<K> {
     ) -> Result<Self> {
         let mut salt = Self::generate_random_bytes(rng, DEFAULT_KEY_SIZE);
 
-        // Derive key using configured KDF
         let (mut derived_key, kdfparams) = match config.params() {
             KdfParams::Scrypt { log_n, r, p, dklen } => {
                 let mut derived = vec![0u8; dklen as usize];
@@ -523,7 +475,7 @@ impl<K: ChainKey> Keystore<K> {
 
                 let kdf_params = KdfparamsType::Scrypt {
                     dklen,
-                    n: 1u32 << log_n, // Convert log_n to N
+                    n: 1u32 << log_n,
                     r,
                     p,
                     salt: hex::encode(&salt),
@@ -573,7 +525,6 @@ impl<K: ChainKey> Keystore<K> {
             mac: hex::encode(&mac),
         };
 
-        // Zeroize sensitive key material
         derived_key.zeroize();
         salt.zeroize();
         iv.zeroize();
@@ -607,9 +558,13 @@ impl<K: ChainKey> Keystore<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::EthereumKeystore;
+    /// use crypto_keystore_rs::{EthereumKeystore, KdfConfig};
     ///
-    /// let keystore = EthereumKeystore::new("password").unwrap();
+    /// // Use fast KDF for doctests
+    /// let keystore = EthereumKeystore::new_with_config(
+    ///     "password",
+    ///     KdfConfig::custom_scrypt(4, 8, 1)
+    /// ).unwrap();
     /// let uuid = keystore.save_to_file("./keystores").unwrap();
     /// println!("Saved to: ./keystores/{}.json", uuid);
     /// # }
@@ -685,38 +640,35 @@ impl<K: ChainKey> Keystore<K> {
             ));
         }
 
-        // Derive key based on KDF type
         let mut derived_key = Self::derive_key(password.as_ref(), &keystore.crypto.kdfparams)?;
 
         let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
         let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
 
-        let ciphertext_bytes = Self::decode_hex(&keystore.crypto.ciphertext, "ciphertext")?;
-        let expected_mac_bytes = Self::decode_hex(&keystore.crypto.mac, "MAC")?;
+        let ciphertext_bytes = hex::decode(&keystore.crypto.ciphertext)
+            .map_err(|e| KeystoreError::HexError(format!("Invalid ciphertext: {e}")))?;
+        let expected_mac_bytes = hex::decode(&keystore.crypto.mac)
+            .map_err(|e| KeystoreError::HexError(format!("Invalid MAC: {e}")))?;
 
-        // Determine MAC algorithm: Keccak256 for v3 (Ethereum legacy) or v4 with chain="ethereum",
-        // SHA256 for all other chains
         let use_keccak = Self::should_use_keccak(keystore.version, keystore.chain.as_deref());
 
         let computed_mac = Self::compute_mac(mac_key, &ciphertext_bytes, use_keccak)?;
 
-        // !! == Constant-time MAC comparison == !!
         if computed_mac.len() != expected_mac_bytes.len()
             || !bool::from(computed_mac.ct_eq(&expected_mac_bytes))
         {
             return Err(KeystoreError::IncorrectPassword);
         }
 
-        let iv_bytes = Self::decode_hex(&keystore.crypto.cipherparams.iv, "IV")?;
+        let iv_bytes = hex::decode(&keystore.crypto.cipherparams.iv)
+            .map_err(|e| KeystoreError::HexError(format!("Invalid IV: {e}")))?;
 
-        // Decrypt using AES-128-CTR
         let mut cipher = Aes128Ctr::new(encryption_key.into(), iv_bytes.as_slice().into());
         let mut plaintext = ciphertext_bytes;
         cipher.apply_keystream(&mut plaintext);
 
         let key = K::from_keystore_bytes(&plaintext)?;
 
-        // Zeroize sensitive key material
         plaintext.zeroize();
         derived_key.zeroize();
 
@@ -748,9 +700,13 @@ impl<K: ChainKey> Keystore<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::EthereumKeystore;
+    /// use crypto_keystore_rs::{EthereumKeystore, KdfConfig};
     ///
-    /// let keystore = EthereumKeystore::new("password").unwrap();
+    /// // Use fast KDF for doctests
+    /// let keystore = EthereumKeystore::new_with_config(
+    ///     "password",
+    ///     KdfConfig::custom_scrypt(4, 8, 1)
+    /// ).unwrap();
     /// let address = keystore.address().unwrap();
     /// # }
     /// ```
@@ -793,9 +749,13 @@ impl<K: ChainKey> Keystore<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::{EthereumKeystore, KeystoreVersion};
+    /// use crypto_keystore_rs::{EthereumKeystore, KeystoreVersion, KdfConfig};
     ///
-    /// let keystore = EthereumKeystore::new("password").unwrap();
+    /// // Use fast KDF for doctests
+    /// let keystore = EthereumKeystore::new_with_config(
+    ///     "password",
+    ///     KdfConfig::custom_scrypt(4, 8, 1)
+    /// ).unwrap();
     /// assert_eq!(keystore.version_enum().unwrap(), KeystoreVersion::V4);
     /// # }
     /// ```
@@ -833,15 +793,16 @@ impl<K: ChainKey> Keystore<K> {
 /// # #[cfg(feature = "ethereum")]
 /// # {
 /// use crypto_keystore_rs::{EthereumKey, EthereumKeystore, KeystoreBuilder, KdfConfig, ChainKey};
-/// use rand::thread_rng();
+/// use rand::thread_rng;
 ///
-/// // Simple usage with defaults
+/// // Simple usage - use fast KDF for doctests
 /// let keystore = KeystoreBuilder::<EthereumKey>::new()
 ///     .with_random_key()
+///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
 ///     .build("password")
 ///     .unwrap();
 ///
-/// // Advanced usage with custom config
+/// // Advanced usage with custom key
 /// let mut rng = thread_rng();
 /// let key = EthereumKey::generate(&mut rng);
 ///
@@ -885,14 +846,16 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, ChainKey};
-    /// use rand::thread_rng();
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, ChainKey, KdfConfig};
+    /// use rand::thread_rng;
     ///
     /// let mut rng = thread_rng();
     /// let key = EthereumKey::generate(&mut rng);
     ///
+    /// // Use fast KDF for doctests
     /// let keystore = KeystoreBuilder::new()
     ///     .with_key(key)
+    ///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
     ///     .build("password")
     ///     .unwrap();
     /// # }
@@ -911,10 +874,12 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder};
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, KdfConfig};
     ///
+    /// // Use fast KDF for doctests
     /// let keystore = KeystoreBuilder::<EthereumKey>::new()
     ///     .with_random_key()
+    ///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
     ///     .build("password")
     ///     .unwrap();
     /// # }
@@ -1027,10 +992,12 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// ```
     /// # #[cfg(feature = "ethereum")]
     /// # {
-    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder};
+    /// use crypto_keystore_rs::{EthereumKey, KeystoreBuilder, KdfConfig};
     ///
+    /// // Use fast KDF for doctests
     /// let keystore = KeystoreBuilder::<EthereumKey>::new()
     ///     .with_random_key()
+    ///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
     ///     .build("my_secure_password")
     ///     .unwrap();
     /// # }
@@ -1040,7 +1007,6 @@ impl<K: ChainKey> KeystoreBuilder<K> {
             .key
             .ok_or_else(|| KeystoreError::CryptoError("No key set in builder".into()))?;
 
-        // Build the keystore using the internal method
         let mut keystore = Keystore::from_key_with_rng_and_config(
             &mut rand::thread_rng(),
             key,
@@ -1048,7 +1014,6 @@ impl<K: ChainKey> KeystoreBuilder<K> {
             self.kdf_config,
         )?;
 
-        // Apply custom settings if provided
         if let Some(uuid) = self.uuid {
             keystore.id = uuid;
         }

@@ -1,5 +1,6 @@
 use crate::chains::ChainKey;
 use crate::error::{KeystoreError, Result};
+use crate::impl_chain_key_boilerplate;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::{CryptoRng, RngCore};
 
@@ -12,6 +13,13 @@ const PUBLIC_KEY_SIZE: usize = 32;
 #[derive(Clone)]
 pub struct SolanaKey {
     signing_key: SigningKey,
+}
+
+impl_chain_key_boilerplate! {
+    SolanaKey,
+    chain_id = "solana",
+    secret_size = 32,
+    keystore_size = 64
 }
 
 impl SolanaKey {
@@ -114,25 +122,11 @@ impl ChainKey for SolanaKey {
     }
 }
 
-impl std::fmt::Debug for SolanaKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SolanaKey")
-            .field("address", &self.address())
-            .finish()
-    }
-}
-
 impl TryFrom<&[u8]> for SolanaKey {
     type Error = crate::error::KeystoreError;
 
     fn try_from(bytes: &[u8]) -> Result<Self> {
         Self::from_keystore_bytes(bytes)
-    }
-}
-
-impl std::fmt::Display for SolanaKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.address())
     }
 }
 
