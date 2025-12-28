@@ -389,13 +389,15 @@ impl<K: ChainKey> Keystore<K> {
     ///     "password",
     ///     KdfConfig::custom_scrypt(4, 8, 1)
     /// ).unwrap();
+    /// # }
+    /// ```
     ///
-    /// // Strong for cold storage
+    /// For production/cold storage, use stronger parameters:
+    /// ```ignore
     /// let keystore = EthereumKeystore::new_with_config(
     ///     "password",
     ///     KdfConfig::scrypt_sensitive()
     /// ).unwrap();
-    /// # }
     /// ```
     pub fn new_with_config<S: AsRef<str>>(password: S, config: KdfConfig) -> Result<Self> {
         let key = K::generate(&mut rand::thread_rng());
@@ -906,14 +908,16 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     ///     .with_kdf_config(KdfConfig::custom_scrypt(4, 8, 1))
     ///     .build("password")
     ///     .unwrap();
+    /// # }
+    /// ```
     ///
-    /// // Strong for cold storage
+    /// For production/cold storage, use stronger parameters:
+    /// ```ignore
     /// let keystore = KeystoreBuilder::<EthereumKey>::new()
     ///     .with_random_key()
     ///     .with_kdf_config(KdfConfig::scrypt_sensitive())
     ///     .build("password")
     ///     .unwrap();
-    /// # }
     /// ```
     #[inline]
     #[must_use]
