@@ -144,12 +144,11 @@ impl KdfConfig {
         }
     }
 
-    /// Default PBKDF2 parameters (iterations=262,144, dklen=32).
+    /// Default PBKDF2 parameters (iterations=600,000, dklen=32).
     ///
     /// PBKDF2 with HMAC-SHA256. Widely supported but less memory-hard than Scrypt.
-    /// Consider using Scrypt instead for new keystores.
     ///
-    /// - 262,144 iterations - Reasonable security for PBKDF2
+    /// - 600,000 iterations (OWASP recommended minimum)
     /// - Compatible with systems that don't support Scrypt
     #[inline]
     #[must_use]
@@ -157,7 +156,7 @@ impl KdfConfig {
         KdfConfig {
             kdf_type: KdfType::Pbkdf2,
             params: KdfParams::Pbkdf2 {
-                iterations: 262_144,
+                iterations: 600_000,
                 dklen: 32,
             },
         }
@@ -307,7 +306,7 @@ mod tests {
         assert_eq!(config.kdf_type(), KdfType::Pbkdf2);
         match config.params() {
             KdfParams::Pbkdf2 { iterations, dklen } => {
-                assert_eq!(iterations, 262_144);
+                assert_eq!(iterations, 600_000);
                 assert_eq!(dklen, 32);
             }
             _ => panic!("Expected PBKDF2 params"),

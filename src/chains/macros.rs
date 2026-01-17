@@ -126,6 +126,7 @@ mod tests {
     use crate::chains::ChainKey;
     use crate::error::Result;
     use rand::{CryptoRng, RngCore};
+    use zeroize::Zeroizing;
 
     // Example minimal key type for testing the macro
     #[derive(Clone)]
@@ -146,8 +147,8 @@ mod tests {
         const KEYSTORE_SIZE: usize = ExampleKey::KEYSTORE_SIZE;
         const CHAIN_ID: &'static str = ExampleKey::CHAIN_ID;
 
-        fn to_keystore_bytes(&self) -> Vec<u8> {
-            self.bytes.clone()
+        fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
+            Zeroizing::new(self.bytes.clone())
         }
 
         fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {

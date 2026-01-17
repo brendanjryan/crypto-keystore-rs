@@ -3,6 +3,7 @@ use crate::error::{KeystoreError, Result};
 use crate::impl_chain_key_boilerplate;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::{CryptoRng, RngCore};
+use zeroize::Zeroizing;
 
 /// Size of Ed25519 secret key in bytes
 const SECRET_KEY_SIZE: usize = 32;
@@ -78,8 +79,8 @@ impl ChainKey for SolanaKey {
     const KEYSTORE_SIZE: usize = 64;
     const CHAIN_ID: &'static str = "solana";
 
-    fn to_keystore_bytes(&self) -> Vec<u8> {
-        self.to_bytes().to_vec()
+    fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
+        Zeroizing::new(self.to_bytes().to_vec())
     }
 
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {

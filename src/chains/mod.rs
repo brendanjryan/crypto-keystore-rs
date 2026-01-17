@@ -1,5 +1,6 @@
 use crate::error::Result;
 use rand::{CryptoRng, RngCore};
+use zeroize::Zeroizing;
 
 pub mod macros;
 
@@ -47,7 +48,7 @@ pub trait ChainKey: Sized + Clone {
     const CHAIN_ID: &'static str;
 
     /// Serialize key material for encryption
-    fn to_keystore_bytes(&self) -> Vec<u8>;
+    fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>>;
 
     /// Deserialize from decrypted bytes
     ///

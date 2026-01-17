@@ -33,7 +33,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --verbose
-      # important! `test-utils` must be enabled otherwise 
+      # important! `test-utils` must be enabled otherwise
       # tests will be slow.
       - run: cargo test --verbose --features test-utils
 
