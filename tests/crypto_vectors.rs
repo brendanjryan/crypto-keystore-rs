@@ -252,7 +252,7 @@ fn ethereum_keystore_bytes_roundtrip_preserves_key() {
     let key2 = EthereumKey::from_keystore_bytes(&serialized).unwrap();
 
     assert_eq!(key1.address(), key2.address());
-    assert_eq!(serialized, private_key_bytes);
+    assert_eq!(&*serialized, &private_key_bytes);
 }
 
 #[test]
@@ -270,5 +270,5 @@ fn solana_keystore_bytes_roundtrip_preserves_keypair() {
     let key2 = SolanaKey::from_keystore_bytes(&serialized).unwrap();
 
     assert_eq!(key1.address(), key2.address());
-    assert_eq!(serialized, keypair_bytes);
+    assert_eq!(&*serialized, &keypair_bytes);
 }

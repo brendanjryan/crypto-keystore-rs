@@ -547,6 +547,9 @@ impl<K: ChainKey> Keystore<K> {
     /// The file will be named `{uuid}.json` where uuid is the keystore's unique identifier.
     /// If the directory doesn't exist, it will be created.
     ///
+    /// On Unix systems, the file is created with mode 0600 (owner read/write only)
+    /// to protect sensitive key material.
+    ///
     /// # Arguments
     ///
     /// * `dir` - Directory path where the keystore file will be saved
@@ -581,7 +584,27 @@ impl<K: ChainKey> Keystore<K> {
         let filepath = dir.join(format!("{}.json", self.id));
 
         let json = serde_json::to_string_pretty(self)?;
-        fs::write(&filepath, json)?;
+
+        // On Unix, set restrictive permissions (owner read/write only)
+        #[cfg(unix)]
+        {
+            use std::fs::OpenOptions;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&filepath)?;
+            file.write_all(json.as_bytes())?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            fs::write(&filepath, json)?;
+        }
 
         Ok(&self.id)
     }
@@ -659,6 +682,7 @@ impl<K: ChainKey> Keystore<K> {
         if computed_mac.len() != expected_mac_bytes.len()
             || !bool::from(computed_mac.ct_eq(&expected_mac_bytes))
         {
+            derived_key.zeroize();
             return Err(KeystoreError::IncorrectPassword);
         }
 
@@ -1038,6 +1062,7 @@ impl<K: ChainKey> Default for KeystoreBuilder<K> {
 mod tests {
     use super::*;
     use crate::kdf_config::KdfConfig;
+    use zeroize::Zeroizing;
 
     #[derive(Debug, Clone)]
     struct TestKey(Vec<u8>);
@@ -1047,8 +1072,8 @@ mod tests {
         const KEYSTORE_SIZE: usize = 32;
         const CHAIN_ID: &'static str = "test";
 
-        fn to_keystore_bytes(&self) -> Vec<u8> {
-            self.0.clone()
+        fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
+            Zeroizing::new(self.0.clone())
         }
 
         fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
