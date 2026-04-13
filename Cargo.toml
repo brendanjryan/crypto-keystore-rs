@@ -20,7 +20,7 @@ exclude = [
 [dependencies]
 # Core dependencies (always included)
 aes = "0.8"
-ctr = "0.9"
+ctr = "0.10"
 pbkdf2 = { version = "0.12", default-features = false }
 scrypt = { version = "0.11", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
