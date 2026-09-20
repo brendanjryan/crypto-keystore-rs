@@ -24,6 +24,33 @@
 /// let config = KdfConfig::custom_scrypt(15, 8, 1);
 /// ```
 
+/// Resource ceilings for importing untrusted keystores.
+///
+/// Defaults accept the built-in presets: at most 64 derived bytes, 1,000,000
+/// PBKDF2 iterations, 2 GiB estimated scrypt memory, and 2^24 scrypt work units
+/// (`N * r * p`). Services should choose lower budgets and limit concurrency.
+/// These limits do not change the parameters used when creating keystores.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KdfLimits {
+    pub max_dklen: u32,
+    pub max_pbkdf2_iterations: u32,
+    /// Estimated scrypt buffers: `128 * r * (N + p + 2)` bytes.
+    pub max_scrypt_memory_bytes: u64,
+    /// Maximum `N * r * p`.
+    pub max_scrypt_work: u64,
+}
+
+impl Default for KdfLimits {
+    fn default() -> Self {
+        Self {
+            max_dklen: 64,
+            max_pbkdf2_iterations: 1_000_000,
+            max_scrypt_memory_bytes: 2 * 1024 * 1024 * 1024,
+            max_scrypt_work: 1 << 24,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KdfType {
     /// Scrypt - memory-hard key derivation function (recommended)
