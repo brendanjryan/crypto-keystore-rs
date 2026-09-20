@@ -1,0 +1,18 @@
+{
+  "crypto": {
+    "c": 2,
+    "cipher": "aes-128-ctr",
+    "cipherparams": {
+      "iv": "db3a2eab8f14fad8f80706a9c6da8ecd"
+    },
+    "ciphertext": "ced441021dfc142d0c286805b57a7514ec1c4e2b55a2c03f930f112224985c62",
+    "dklen": 32,
+    "kdf": "pbkdf2",
+    "mac": "0d1afe4a1cf4556d9288f84fd45a3407ac4f0460e8d1bee7fc78cef33029a66c",
+    "prf": "hmac-sha256",
+    "salt": "cf008d525c640202bb6a483e9e15d2a644761106ec967601b7ed24c7592e9f39"
+  },
+  "id": "5e9d79a7-a2ad-4110-bb3e-0045d1a0f00b",
+  "version": 4,
+  "chain": "ethereum"
+}

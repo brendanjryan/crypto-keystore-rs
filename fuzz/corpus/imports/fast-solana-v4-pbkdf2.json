@@ -1,0 +1,18 @@
+{
+  "crypto": {
+    "c": 2,
+    "cipher": "aes-128-ctr",
+    "cipherparams": {
+      "iv": "13e0c28ca1d092e13d0ba6fbab139308"
+    },
+    "ciphertext": "d6f19e594c10af5a97f729813c50492a8c5fd0e9aa738fb1fa0150d89bbf1c5126530cd36f49492ef1ba565d9cce9f104e895890c0867a9ee8296345c96d75fa",
+    "dklen": 32,
+    "kdf": "pbkdf2",
+    "mac": "ff10f6780acc1cff37becdb0a0f958c6442025e3f304fe64ac61e97dc9849af7",
+    "prf": "hmac-sha256",
+    "salt": "1263080ffbad8a0eaec449af7d21e2ea71ba73b28aa5449468c5428da916b053"
+  },
+  "id": "8c599f55-dfd9-45f5-b00e-688bf41fed5a",
+  "version": 4,
+  "chain": "solana"
+}

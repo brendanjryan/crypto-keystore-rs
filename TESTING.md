@@ -48,7 +48,9 @@ Both have a five-second per-input timeout and a 1 GiB RSS ceiling.
   chains, and varied passwords. It checks exact key recovery and rejects mutations
   to the nonce, salt, ciphertext, tag, UUID, derived length, chain, or version.
 
-Both targets use strict input/KDF budgets. Shared harness code in
+Both targets use strict input/KDF budgets. Fast valid seeds cover every supported
+chain/version/KDF combination; regression tests ensure they decrypt within those
+budgets and recover the expected synthetic key. Shared harness code in
 `tests/support/fuzz_cases.rs` is also exercised by ordinary tests. Commit minimized
 regressions to `fuzz/corpus/<target>/` with descriptive names; CI replays every seed.
 Generated hash-named corpus entries and build artifacts are ignored. CI uploads
@@ -77,6 +79,10 @@ Tests cover missing directories, failed destination replacement, unwritable Unix
 directories, symlink replacement, permissions, and simultaneous readers/writers of
 the same UUID. Successful reads must recover one complete expected key. Permission
 failure tests skip only when a privileged process demonstrably bypasses Unix mode bits.
+Concurrent replacement on Windows can return access-denied or sharing-violation
+errors while handles remain open. The concurrency test accepts only those Windows
+errors, still checks every read and temporary-file cleanup, and requires saves to
+succeed after the competing operations finish.
 
 `save_to_file` promises atomic replacement, not power-loss durability. It syncs the
 file before rename but does not sync the parent directory afterward. Keep backups.

@@ -2,7 +2,7 @@ use crypto_keystore_rs::{ChainKey, ImportLimits, KdfConfig, KdfLimits, Keystore}
 use rand::{rngs::StdRng, SeedableRng};
 use serde_json::json;
 
-fn limits() -> ImportLimits {
+pub(super) fn limits() -> ImportLimits {
     ImportLimits {
         max_input_bytes: 64 * 1024,
         kdf: KdfLimits {
