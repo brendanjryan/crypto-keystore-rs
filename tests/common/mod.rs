@@ -207,7 +207,7 @@ impl KeystoreFixture {
         Self {
             json: include_str!("../fixtures/ethereum_v3.json").to_string(),
             password: "testpassword".to_string(),
-            expected_address: Some("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf".to_string()),
+            expected_address: Some("0x008aeeda4d805471df9b2a5b0f38a0c3bcba786b".to_string()),
         }
     }
 

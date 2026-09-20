@@ -13,18 +13,21 @@ This library extends the core web3 keystore spec [ref](https://ethereum.org/deve
 ## Features
 
 - **Multi-chain support**: Ethereum (secp256k1) and Solana (Ed25519) keys
-- **Web3 compatibility**: Supports Web3 Secret Storage format v3 (Ethereum) and v4 (chain-neutral)
+- **Web3 compatibility**: Authenticated v5 format, with legacy v3 (Ethereum) and v4 (chain-neutral) support
 - **Secure**: Uses audited cryptographic libraries from [RustCrypto](https://github.com/RustCrypto)
-- **Zero-copy**: Keys are zeroized on drop to prevent memory leaks
+- **Memory cleanup**: Temporary secret buffers are zeroized on drop
 - **Opt-in functionality**: Only compile what you need (ethereum, solana, or both)
 
 ## Installation
+
+This README includes unreleased v5 changes on `main`; published 0.2 releases use
+the legacy default format.
 
 Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-crypto-keystore-rs = "0.1"
+crypto-keystore-rs = "0.2"
 ```
 
 ### Feature Flags
@@ -34,28 +37,52 @@ By default, both Ethereum and Solana support are enabled. You can opt into speci
 ```toml
 [dependencies]
 # Only Ethereum
-crypto-keystore-rs = { version = "0.1", default-features = false, features = ["ethereum"] }
+crypto-keystore-rs = { version = "0.2", default-features = false, features = ["ethereum"] }
 
 # Only Solana
-crypto-keystore-rs = { version = "0.1", default-features = false, features = ["solana"] }
+crypto-keystore-rs = { version = "0.2", default-features = false, features = ["solana"] }
 
 # Both (default)
-crypto-keystore-rs = "0.1"
+crypto-keystore-rs = "0.2"
 ```
 
 ## Usage
 
+### Import limits
+
+Keystore imports default to a 64 KiB JSON/file limit and bounded KDF work. To
+configure input size separately from KDF budgets:
+
+```rust
+use crypto_keystore_rs::{EthereumKeystore, ImportLimits, KdfLimits};
+
+let limits = ImportLimits {
+    max_input_bytes: 4096,
+    kdf: KdfLimits {
+        max_pbkdf2_iterations: 600_000,
+        ..KdfLimits::default()
+    },
+};
+let loaded = EthereumKeystore::load_from_file_with_import_limits(
+    "keystore.json", "password", limits,
+)?;
+```
+
+`from_json_with_import_limits` applies the same policy to JSON strings. Existing
+`*_with_limits` methods still accept `KdfLimits` and use the default input cap.
+Oversized input returns `KeystoreError::InputTooLarge` before JSON parsing.
+
 ### Ethereum Example
 
 ```rust
-use crypto_keystore_rs::{EthereumKeystore, ChainKey};
+use crypto_keystore_rs::EthereumKeystore;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let password = "secure_password_123";
 
     // Create a new Ethereum keystore with a random key
     let keystore = EthereumKeystore::new(password)?;
-    let address = keystore.key()?.public_key();
+    let address = keystore.key()?.address();
     println!("Ethereum address: {}", address);
 
     // Save to file
@@ -68,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         password
     )?;
 
-    assert_eq!(loaded.key()?.public_key(), address);
+    assert_eq!(loaded.key()?.address(), address);
 
     Ok(())
 }
@@ -77,14 +104,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Solana Example
 
 ```rust
-use crypto_keystore_rs::{SolanaKeystore, ChainKey};
+use crypto_keystore_rs::SolanaKeystore;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let password = "secure_password_123";
 
     // Create a new Solana keystore with a random key
     let keystore = SolanaKeystore::new(password)?;
-    let address = keystore.key()?.public_key();
+    let address = keystore.key()?.address();
     println!("Solana address: {}", address);
 
     // Save to file
@@ -97,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         password
     )?;
 
-    assert_eq!(loaded.key()?.public_key(), address);
+    assert_eq!(loaded.key()?.address(), address);
 
     Ok(())
 }
@@ -110,24 +137,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 The library uses a trait-based design in order to encapsulate different key encodings on a per chain/VM basis.
 
 ```rust
-pub trait ChainKey: Sized {
+pub trait ChainKey: Sized + Clone {
     const SECRET_KEY_SIZE: usize;
     const KEYSTORE_SIZE: usize;
     const CHAIN_ID: &'static str;
 
-    fn to_keystore_bytes(&self) -> Vec<u8>;
+    fn to_keystore_bytes(&self) -> zeroize::Zeroizing<Vec<u8>>;
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self>;
     fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self;
-    fn public_key(&self) -> String;
-    fn mac_algorithm() -> MacAlgorithm;
+    fn address(&self) -> String;
 }
 ```
 
 ### Keystore Format
 
-The library uses a JSON-based keystore format inspired by the Web3 Secret Storage Definition, but extended to support chains other than Ethereum.:
+New keystores use **version 5**, with AES-256-GCM authenticating the nonce,
+ciphertext, UUID, chain, and cryptographic parameters. See [format and migration
+details](FORMAT.md). Legacy v3/v4 files remain readable; their MACs do not
+authenticate the IV.
 
-**Version 4 (Chain-neutral):**
+The library uses a JSON-based keystore format inspired by the Web3 Secret Storage Definition, but extended to support chains other than Ethereum.
+
+**Legacy version 4 (chain-neutral):**
 ```json
 {
   "crypto": {

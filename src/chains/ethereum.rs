@@ -99,7 +99,8 @@ impl ChainKey for EthereumKey {
     const CHAIN_ID: &'static str = "ethereum";
 
     fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
-        Zeroizing::new(self.signing_key.to_bytes().to_vec())
+        let bytes = Zeroizing::new(self.signing_key.to_bytes());
+        Zeroizing::new(bytes.to_vec())
     }
 
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
@@ -198,19 +199,7 @@ mod tests {
         let key = EthereumKey::from_keystore_bytes(&private_key_bytes).unwrap();
         let address = key.address();
 
-        // The EIP-55 checksummed version of this address
-        // Note: exact checksum depends on Keccak256 of lowercase address
-        assert_eq!(
-            address.to_lowercase(),
-            "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
-        );
-
-        // Verify it's checksummed (not all lowercase)
-        assert_ne!(
-            address,
-            address.to_lowercase(),
-            "Address should be checksummed, not all lowercase"
-        );
+        assert_eq!(address, "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+#![cfg(any(feature = "ethereum", feature = "solana"))]
 mod common;
 
 use proptest::prelude::*;
@@ -95,7 +96,7 @@ proptest! {
 
         // Metadata should be consistent
         prop_assert!(keystore.is_decrypted());
-        prop_assert_eq!(keystore.version(), crypto_keystore_rs::VERSION_4);
+        prop_assert_eq!(keystore.version(), crypto_keystore_rs::VERSION_5);
         prop_assert_eq!(keystore.chain(), Some("ethereum"));
 
         // ID should be valid UUID

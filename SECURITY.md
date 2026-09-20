@@ -8,7 +8,7 @@ This library is designed to securely store cryptographic private keys for blockc
 ### What This Library Protects Against
 
 1. **At-Rest Key Exposure**
-   - Private keys are encrypted with AES-128-CTR using keys derived from passwords
+   - New v5 keystores encrypt private keys with AES-256-GCM using password-derived keys. Legacy v3/v4 files use AES-128-CTR.
    - Uses memory-hard KDFs (Scrypt, PBKDF2) to resist brute-force attacks
    - Default Scrypt parameters (N=2^18) provide strong protection
 
@@ -57,11 +57,30 @@ This library is designed to securely store cryptographic private keys for blockc
    - The library relies on the OS CSPRNG (`rand::thread_rng()`)
    - On systems with poor entropy sources, keys may be predictable
 
+## Format Authentication
+
+Version 5 authenticates the nonce, ciphertext, UUID, chain, cipher, and KDF
+parameters. See [the format definition and migration example](FORMAT.md).
+Legacy v3/v4 MACs do not cover the IV; migration requires decrypting and
+re-encrypting a trusted copy, not editing its version number.
+
+Import methods reject JSON larger than 64 KiB by default, including whitespace
+and ignored fields. File reads are bounded before parsing, and ciphertext, IV,
+and MAC lengths are checked before hex decoding. `ImportLimits` configures the
+input byte ceiling separately from `KdfLimits`; use `from_json_with_import_limits`
+or `load_from_file_with_import_limits` to override it. Direct Serde deserialization
+does not apply these import limits or decrypt keys.
+
+KDF import limits reject excessive derived-key lengths, PBKDF2 iterations, and
+scrypt memory/work before derivation. Applications handling untrusted files should
+set budgets appropriate to their hardware and bound concurrent imports.
+
 ## Cryptographic Choices
 
 | Component | Algorithm | Security Level |
 |-----------|-----------|----------------|
-| Encryption | AES-128-CTR | 128-bit |
+| Encryption (v5) | AES-256-GCM | 256-bit key, 128-bit tag |
+| Encryption (legacy v3/v4) | AES-128-CTR | 128-bit |
 | MAC (Ethereum) | Keccak256 | 256-bit |
 | MAC (Other chains) | SHA256 | 256-bit |
 | KDF (default) | Scrypt | Memory-hard |
