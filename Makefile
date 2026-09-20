@@ -26,6 +26,7 @@ coverage:
 	cargo llvm-cov --release --all-features --ignore-filename-regex '/tests/' --fail-under-lines 90 --html
 
 branch-coverage:
+	python3 -m unittest discover -s scripts -p 'test_*.py'
 	cargo +nightly-2026-06-08 llvm-cov --release --all-features --branch --ignore-filename-regex '/tests/' --json --output-path target/branch-coverage.json
 	python3 scripts/check-branch-coverage.py target/branch-coverage.json
 
