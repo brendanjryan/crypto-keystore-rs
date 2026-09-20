@@ -9,6 +9,7 @@ use scrypt::{scrypt, Params as ScryptParams};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -178,7 +179,9 @@ impl<'de, K: ChainKey> Deserialize<'de> for Keystore<K> {
         Ok(Keystore {
             key: None,
             crypto: helper.crypto,
-            id: helper.id,
+            id: Uuid::parse_str(&helper.id)
+                .map_err(serde::de::Error::custom)?
+                .to_string(),
             version: helper.version,
             chain: helper.chain,
         })
@@ -545,7 +548,8 @@ impl<K: ChainKey> Keystore<K> {
     /// Saves the keystore to a JSON file in the specified directory.
     ///
     /// The file will be named `{uuid}.json` where uuid is the keystore's unique identifier.
-    /// If the directory doesn't exist, it will be created.
+    /// If the directory doesn't exist, it will be created. Existing files are replaced
+    /// atomically; symbolic links are replaced without writing to their targets.
     ///
     /// On Unix systems, the file is created with mode 0600 (owner read/write only)
     /// to protect sensitive key material.
@@ -585,26 +589,10 @@ impl<K: ChainKey> Keystore<K> {
 
         let json = serde_json::to_string_pretty(self)?;
 
-        // On Unix, set restrictive permissions (owner read/write only)
-        #[cfg(unix)]
-        {
-            use std::fs::OpenOptions;
-            use std::io::Write;
-            use std::os::unix::fs::OpenOptionsExt;
-
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&filepath)?;
-            file.write_all(json.as_bytes())?;
-        }
-
-        #[cfg(not(unix))]
-        {
-            fs::write(&filepath, json)?;
-        }
+        let mut file = tempfile::NamedTempFile::new_in(dir)?;
+        file.write_all(json.as_bytes())?;
+        file.as_file().sync_all()?;
+        file.persist(&filepath).map_err(|err| err.error)?;
 
         Ok(&self.id)
     }
@@ -1031,6 +1019,14 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// # }
     /// ```
     pub fn build<S: AsRef<str>>(self, password: S) -> Result<Keystore<K>> {
+        let uuid = self
+            .uuid
+            .map(|id| {
+                Uuid::parse_str(&id)
+                    .map(|uuid| uuid.to_string())
+                    .map_err(|_| KeystoreError::InvalidId(id))
+            })
+            .transpose()?;
         let key = self
             .key
             .ok_or_else(|| KeystoreError::CryptoError("No key set in builder".into()))?;
@@ -1042,7 +1038,7 @@ impl<K: ChainKey> KeystoreBuilder<K> {
             self.kdf_config,
         )?;
 
-        if let Some(uuid) = self.uuid {
+        if let Some(uuid) = uuid {
             keystore.id = uuid;
         }
         keystore.version = self.version;

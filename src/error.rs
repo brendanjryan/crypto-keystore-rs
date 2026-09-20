@@ -16,6 +16,9 @@ pub enum KeystoreError {
     #[error("Incorrect password")]
     IncorrectPassword,
 
+    #[error("Invalid keystore UUID: {0}")]
+    InvalidId(String),
+
     #[error("Invalid KDF parameters: {0}")]
     InvalidKdfParams(String),
 

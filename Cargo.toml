@@ -33,6 +33,7 @@ zeroize = { version = "1.8", features = ["derive"] }
 hex = "0.4"
 subtle = "2.6"
 remain = "0.2"
+tempfile = "3.23"
 
 # Chain-specific dependencies (feature-gated)
 k256 = { version = "0.13", features = ["ecdsa"], optional = true }
@@ -41,7 +42,6 @@ ed25519-dalek = { version = "2.0", features = ["rand_core"], optional = true }
 bs58 = { version = "0.5", optional = true }
 
 [dev-dependencies]
-tempfile = "3.23"
 proptest = "1.4"
 
 [features]
