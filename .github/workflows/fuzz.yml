@@ -1,0 +1,42 @@
+name: Fuzzing
+
+on:
+  pull_request:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [imports, authenticated]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz@0.13.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          key: fuzz-${{ matrix.target }}
+      - name: Fuzz with bounded resource use
+        env:
+          TARGET: ${{ matrix.target }}
+          DURATION: ${{ github.event_name == 'schedule' && '600' || '30' }}
+        run: cargo fuzz run "$TARGET" -- -max_total_time="$DURATION" -max_len=65537 -timeout=5 -rss_limit_mb=1024
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/
+            fuzz/corpus/

@@ -715,6 +715,9 @@ impl<K: ChainKey> Keystore<K> {
     /// The file will be named `{uuid}.json` where uuid is the keystore's unique identifier.
     /// If the directory doesn't exist, it will be created. Existing files are replaced
     /// atomically; symbolic links are replaced without writing to their targets.
+    /// The file is synced before replacement, but the parent directory is not
+    /// synced afterward. Successful return does not guarantee durability across
+    /// power loss; retain a separate backup.
     ///
     /// On Unix systems, the file is created with mode 0600 (owner read/write only)
     /// to protect sensitive key material.

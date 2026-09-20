@@ -90,3 +90,35 @@ fn solana_version_matrix() {
         Err(KeystoreError::UnsupportedChain(_))
     ));
 }
+
+#[test]
+#[cfg(feature = "ethereum")]
+fn v3_accepts_only_an_absent_or_ethereum_chain() {
+    use crypto_keystore_rs::{EthereumKey, EthereumKeystore};
+    let store = KeystoreBuilder::<EthereumKey>::new()
+        .with_random_key()
+        .with_version(VERSION_3)
+        .with_kdf_config(KdfConfig::custom_pbkdf2(2))
+        .build("password")
+        .unwrap();
+    let base = serde_json::to_value(&store).unwrap();
+    for chain in [
+        json!(null),
+        json!("ethereum"),
+        json!("solana"),
+        json!("unknown"),
+        json!(""),
+    ] {
+        let mut value = base.clone();
+        value["chain"] = chain.clone();
+        let result = EthereumKeystore::from_json(&value.to_string(), "password");
+        if chain.is_null() || chain == "ethereum" {
+            assert_eq!(
+                result.unwrap().key().unwrap().to_keystore_bytes(),
+                store.key().unwrap().to_keystore_bytes()
+            );
+        } else {
+            assert!(matches!(result, Err(KeystoreError::UnsupportedChain(_))));
+        }
+    }
+}

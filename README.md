@@ -202,3 +202,8 @@ cargo test                                     # All tests
 cargo test --no-default-features --features ethereum  # Ethereum only
 cargo test --no-default-features --features solana    # Solana only
 ```
+
+## Testing and security checks
+
+See [TESTING.md](TESTING.md) for mutation testing, fuzzing, OpenSSL interoperability,
+coverage reports, supported Rust versions, and the file-durability contract.

@@ -50,16 +50,17 @@ proptest! {
     #[test]
     fn encryption_always_uses_unique_iv_and_uuid(password in "[a-zA-Z0-9]{8,32}") {
         // Create two keystores with the same password
-        let ks1 = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
-        let ks2 = EthereumKeystore::new_with_config(&password, test_kdf_config())?;
+        let key = EthereumKey::generate(&mut rand::thread_rng());
+        let ks1 = EthereumKeystore::from_key_with_config(key.clone(), &password, test_kdf_config())?;
+        let ks2 = EthereumKeystore::from_key_with_config(key, &password, test_kdf_config())?;
 
         // They should have different UUIDs (random)
         prop_assert_ne!(ks1.id(), ks2.id());
 
-        // JSONs should be different (different IVs, salts, UUIDs)
-        let json1 = ks1.to_json()?;
-        let json2 = ks2.to_json()?;
-        prop_assert_ne!(json1, json2);
+        let json1 = serde_json::to_value(&ks1)?;
+        let json2 = serde_json::to_value(&ks2)?;
+        prop_assert_ne!(&json1["crypto"]["salt"], &json2["crypto"]["salt"]);
+        prop_assert_ne!(&json1["crypto"]["cipherparams"]["iv"], &json2["crypto"]["cipherparams"]["iv"]);
     }
 
     #[test]

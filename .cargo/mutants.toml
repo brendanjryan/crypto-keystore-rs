@@ -1,0 +1,6 @@
+all_features = true
+profile = "release"
+additional_cargo_args = ["--tests"]
+examine_re = ["generate_random_bytes|validate_version_chain|read_limited|apply_legacy_keystream|KeystoreVersion::|validate_keystore_size"]
+minimum_test_timeout = 60.0
+timeout_multiplier = 3.0

@@ -1,0 +1,21 @@
+{
+  "crypto": {
+    "cipher": "aes-128-ctr",
+    "cipherparams": {
+      "iv": "6087dab2f9fdbbfaddc31a909735c1e6"
+    },
+    "ciphertext": "d172bf743a674da9cdad04534d56926ef8358534d458fffccd4e6ad2fbde479c8f5f4552091a69125d5dfcb7b8c2659029395bdf02d8ccb40e466191a123791e",
+    "kdf": "scrypt",
+    "kdfparams": {
+      "dklen": 32,
+      "n": 262144,
+      "p": 1,
+      "r": 8,
+      "salt": "ae3cd4e7013836a3df6bd7241b12db061dbe2c6785853cce422d148a624ce0bd"
+    },
+    "mac": "8c5a5a3e9e1e4d7c9f6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f"
+  },
+  "id": "9c7e5a3b-8d6f-4e2c-a1b0-3f2e1d0c9b8a",
+  "version": 4,
+  "chain": "solana"
+}

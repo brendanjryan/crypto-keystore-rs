@@ -54,3 +54,30 @@ fn rejects_invalid_creation_parameters_before_derivation() {
         ));
     }
 }
+
+#[test]
+fn rejects_malformed_salts_before_derivation() {
+    for config in [
+        KdfConfig::custom_pbkdf2(2),
+        KdfConfig::custom_scrypt(4, 8, 1),
+    ] {
+        for salt in ["0", "zz", "é"] {
+            let mut value = fixture(config);
+            value["crypto"]["salt"] = json!(salt);
+            assert!(matches!(
+                EthereumKeystore::from_json(&value.to_string(), "password"),
+                Err(KeystoreError::HexError(_))
+            ));
+        }
+    }
+}
+
+#[test]
+fn rejects_scrypt_parameters_outside_algorithm_constraints() {
+    for (log_n, r, p) in [(4, 0, 1), (4, 8, 0), (16, 1, 1)] {
+        assert!(matches!(
+            EthereumKeystore::new_with_config("password", KdfConfig::custom_scrypt(log_n, r, p)),
+            Err(KeystoreError::InvalidKdfParams(_))
+        ));
+    }
+}
