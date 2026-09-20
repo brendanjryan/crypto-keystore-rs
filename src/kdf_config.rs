@@ -1,28 +1,28 @@
-/// KDF (Key Derivation Function) configuration presets and custom parameters.
-///
-/// This module provides convenient presets for common use cases as well as the
-/// ability to specify custom KDF parameters.
-///
-/// # Examples
-///
-/// ```
-/// use crypto_keystore_rs::KdfConfig;
-///
-/// // Use default secure parameters (Scrypt with N=2^18)
-/// let config = KdfConfig::scrypt_default();
-///
-/// // Use faster parameters for interactive applications
-/// let config = KdfConfig::scrypt_interactive();
-///
-/// // Use stronger parameters for cold storage
-/// let config = KdfConfig::scrypt_sensitive();
-///
-/// // Use PBKDF2 instead of Scrypt
-/// let config = KdfConfig::pbkdf2_default();
-///
-/// // Custom parameters
-/// let config = KdfConfig::custom_scrypt(15, 8, 1);
-/// ```
+//! KDF (Key Derivation Function) configuration presets and custom parameters.
+//!
+//! This module provides convenient presets for common use cases as well as the
+//! ability to specify custom KDF parameters.
+//!
+//! # Examples
+//!
+//! ```
+//! use crypto_keystore_rs::KdfConfig;
+//!
+//! // Use default secure parameters (Scrypt with N=2^18)
+//! let config = KdfConfig::scrypt_default();
+//!
+//! // Use faster parameters for interactive applications
+//! let config = KdfConfig::scrypt_interactive();
+//!
+//! // Use stronger parameters for cold storage
+//! let config = KdfConfig::scrypt_sensitive();
+//!
+//! // Use PBKDF2 instead of Scrypt
+//! let config = KdfConfig::pbkdf2_default();
+//!
+//! // Custom parameters
+//! let config = KdfConfig::custom_scrypt(15, 8, 1);
+//! ```
 
 /// Resource ceilings for importing untrusted keystores.
 ///
