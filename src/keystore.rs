@@ -6,7 +6,8 @@ use aes::cipher::{KeyIvInit, StreamCipher};
 use pbkdf2::pbkdf2_hmac;
 use rand::{CryptoRng, RngCore};
 use scrypt::{scrypt, Params as ScryptParams};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -140,10 +141,9 @@ pub const VERSION_4: u32 = 4;
 /// println!("Address: {}", keystore.key().unwrap().address());
 /// # }
 /// ```
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Keystore<K: ChainKey> {
     /// The decrypted key: only present after successful decryption
-    #[serde(skip)]
     key: Option<K>,
 
     /// Encrypted key material and cryptographic parameters
@@ -158,8 +158,40 @@ pub struct Keystore<K: ChainKey> {
     version: u32,
 
     /// Chain identifier ("ethereum", "solana", etc.)
-    #[serde(skip_serializing_if = "Option::is_none")]
     chain: Option<String>,
+}
+
+impl<K: ChainKey> Serialize for Keystore<K> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut crypto = serde_json::to_value(&self.crypto).map_err(serde::ser::Error::custom)?;
+        if self.version == VERSION_3 {
+            let mut params =
+                serde_json::to_value(&self.crypto.kdfparams).map_err(serde::ser::Error::custom)?;
+            let params = params
+                .as_object_mut()
+                .expect("KDF parameters serialize as an object");
+            params.remove("kdf");
+            let crypto = crypto
+                .as_object_mut()
+                .expect("crypto serializes as an object");
+            for key in params.keys() {
+                crypto.remove(key);
+            }
+            crypto.insert(
+                "kdfparams".into(),
+                serde_json::Value::Object(std::mem::take(params)),
+            );
+        }
+        let mut state =
+            serializer.serialize_struct("Keystore", 3 + usize::from(self.chain.is_some()))?;
+        state.serialize_field("crypto", &crypto)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("version", &self.version)?;
+        if let Some(chain) = &self.chain {
+            state.serialize_field("chain", chain)?;
+        }
+        state.end()
+    }
 }
 
 impl<'de, K: ChainKey> Deserialize<'de> for Keystore<K> {
@@ -194,10 +226,34 @@ struct CryptoJson {
     cipherparams: CipherparamsJson,
     ciphertext: String,
 
-    #[serde(flatten)]
+    #[serde(flatten, deserialize_with = "deserialize_kdfparams")]
     kdfparams: KdfparamsType,
 
     mac: String,
+}
+
+fn deserialize_kdfparams<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<KdfparamsType, D::Error> {
+    let mut fields = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+    if let Some(nested) = fields.remove("kdfparams") {
+        let serde_json::Value::Object(mut params) = nested else {
+            return Err(serde::de::Error::custom("kdfparams must be an object"));
+        };
+        if params.contains_key("kdf")
+            || ["dklen", "c", "prf", "n", "r", "p", "salt"]
+                .iter()
+                .any(|key| fields.contains_key(*key))
+        {
+            return Err(serde::de::Error::custom("ambiguous KDF parameters"));
+        }
+        let kdf = fields
+            .remove("kdf")
+            .ok_or_else(|| serde::de::Error::missing_field("kdf"))?;
+        params.insert("kdf".into(), kdf);
+        fields = params;
+    }
+    serde_json::from_value(serde_json::Value::Object(fields)).map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
