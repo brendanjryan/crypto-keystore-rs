@@ -20,6 +20,9 @@ MUTATIONS = [
     ("relaxed-kdf-budget", "kdf_limits", "*c <= limits.max_pbkdf2_iterations",
      "*c <= limits.max_pbkdf2_iterations.saturating_add(1)"),
     ("skipped-version-check", "version_validation", "KeystoreVersion::from_u32(version)?;", ""),
+    ("ignored-write-error", "lib", "write(file.as_file_mut(), json.as_bytes())?;",
+     "let _ = write(file.as_file_mut(), json.as_bytes());"),
+    ("ignored-sync-error", "lib", "sync(file.as_file())?;", "let _ = sync(file.as_file());"),
 ]
 
 
@@ -36,7 +39,7 @@ def main():
         tests = sorted({test for _, test, _, _ in MUTATIONS})
         command = ["cargo", "test", "--release", "--all-features"]
         for test in tests:
-            command += ["--test", test]
+            command += ["--lib"] if test == "lib" else ["--test", test]
         with (output / "baseline.log").open("w") as log:
             subprocess.run(command, cwd=work, stdout=log, stderr=subprocess.STDOUT,
                            timeout=600, check=True)
@@ -45,7 +48,8 @@ def main():
             if original.count(before) != expected_matches:
                 raise RuntimeError(f"{name}: mutation anchor changed; update the case")
             source.write_text(original.replace(before, after))
-            command = ["cargo", "test", "--release", "--all-features", "--test", test]
+            command = ["cargo", "test", "--release", "--all-features"]
+            command += ["--lib"] if test == "lib" else ["--test", test]
             with (output / f"{name}-build.log").open("w") as log:
                 subprocess.run(command + ["--no-run"], cwd=work, stdout=log,
                                stderr=subprocess.STDOUT, timeout=300, check=True)

@@ -749,8 +749,19 @@ impl<K: ChainKey> Keystore<K> {
     /// # }
     /// ```
     pub fn save_to_file<P: AsRef<Path>>(&self, dir: P) -> Result<&str> {
-        let dir = dir.as_ref();
+        self.save_with_io(
+            dir.as_ref(),
+            |file, bytes| file.write_all(bytes),
+            fs::File::sync_all,
+        )
+    }
 
+    fn save_with_io(
+        &self,
+        dir: &Path,
+        write: impl FnOnce(&mut fs::File, &[u8]) -> std::io::Result<()>,
+        sync: impl FnOnce(&fs::File) -> std::io::Result<()>,
+    ) -> Result<&str> {
         if !dir.exists() {
             fs::create_dir_all(dir)?;
         }
@@ -760,8 +771,8 @@ impl<K: ChainKey> Keystore<K> {
         let json = serde_json::to_string_pretty(self)?;
 
         let mut file = tempfile::NamedTempFile::new_in(dir)?;
-        file.write_all(json.as_bytes())?;
-        file.as_file().sync_all()?;
+        write(file.as_file_mut(), json.as_bytes())?;
+        sync(file.as_file())?;
         file.persist(&filepath).map_err(|err| err.error)?;
 
         Ok(&self.id)
@@ -1336,6 +1347,7 @@ impl<K: ChainKey> Default for KeystoreBuilder<K> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::kdf_config::KdfConfig;
@@ -1354,16 +1366,7 @@ mod tests {
         }
 
         fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
-            if bytes.len() != Self::KEYSTORE_SIZE {
-                return Err(KeystoreError::InvalidKey {
-                    chain: Self::CHAIN_ID.into(),
-                    reason: format!(
-                        "Expected {} bytes, got {}",
-                        Self::KEYSTORE_SIZE,
-                        bytes.len()
-                    ),
-                });
-            }
+            Self::validate_keystore_size(bytes)?;
             Ok(TestKey(bytes.to_vec()))
         }
 
@@ -1381,34 +1384,8 @@ mod tests {
     // OpenSSL AES-128-CTR vectors; the v4 column uses AES-ECB on each
     // counter block with only the low 64 bits incremented.
     #[test]
-    #[cfg(feature = "ethereum")]
     fn legacy_counter_boundaries_match_independent_vectors() {
-        struct FixedRng([u8; 16]);
-        impl CryptoRng for FixedRng {}
-        impl RngCore for FixedRng {
-            fn next_u32(&mut self) -> u32 {
-                let mut bytes = [0; 4];
-                self.fill_bytes(&mut bytes);
-                u32::from_le_bytes(bytes)
-            }
-            fn next_u64(&mut self) -> u64 {
-                let mut bytes = [0; 8];
-                self.fill_bytes(&mut bytes);
-                u64::from_le_bytes(bytes)
-            }
-            fn fill_bytes(&mut self, dest: &mut [u8]) {
-                if dest.len() == 16 {
-                    dest.copy_from_slice(&self.0);
-                } else {
-                    dest.fill(0);
-                }
-            }
-            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), rand::Error> {
-                self.fill_bytes(dest);
-                Ok(())
-            }
-        }
-
+        let key = hex::decode("65aed99c53d8cdcfac92d1632db420fb").unwrap();
         for (iv, v3, v4) in [
             (
                 "0000000000000000fffffffffffffffe",
@@ -1429,22 +1406,14 @@ mod tests {
             for (version, expected) in [(VERSION_3, v3), (VERSION_4, v4)] {
                 let mut secret = [0; 32];
                 secret[31] = 1;
-                let key = crate::EthereumKey::from_keystore_bytes(&secret).unwrap();
-                let mut rng = FixedRng(hex::decode(iv).unwrap().try_into().unwrap());
-                let store = Keystore::encrypt(
-                    &mut rng,
-                    key,
-                    "password",
-                    KdfConfig::custom_pbkdf2(2),
-                    version,
-                    "3198bc9c-6672-5ab3-d995-4942343ae5b6".into(),
-                )
-                .unwrap();
-                assert_eq!(store.crypto.ciphertext, expected, "v{version}, IV {iv}");
-                let loaded =
-                    crate::EthereumKeystore::from_json(&store.to_json().unwrap(), "password")
-                        .unwrap();
-                assert_eq!(loaded.key().unwrap().to_keystore_bytes().as_slice(), secret);
+                let iv = hex::decode(iv).unwrap();
+                let mut ciphertext = secret;
+                Keystore::<TestKey>::apply_legacy_keystream(version, &key, &iv, &mut ciphertext)
+                    .unwrap();
+                assert_eq!(hex::encode(ciphertext), expected, "v{version}");
+                Keystore::<TestKey>::apply_legacy_keystream(version, &key, &iv, &mut ciphertext)
+                    .unwrap();
+                assert_eq!(ciphertext, secret);
             }
         }
     }
@@ -1493,6 +1462,64 @@ mod tests {
             Keystore::<TestKey>::compute_mac(&[0; 16], &[0; 32], true),
             Err(KeystoreError::UnsupportedChain(_))
         ));
+    }
+
+    #[test]
+    fn failed_writes_and_syncs_preserve_the_destination() {
+        use std::io::ErrorKind::{Other, StorageFull};
+
+        let store =
+            Keystore::<TestKey>::new_with_config("password", KdfConfig::custom_pbkdf2(2)).unwrap();
+        for (fail_after, kind) in [
+            (Some(0), StorageFull),
+            (Some(8), StorageFull),
+            (Some(8), Other),
+            (None, StorageFull),
+            (None, Other),
+        ] {
+            for existing in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join(format!("{}.json", store.id()));
+                let old = b"original file contents";
+                if existing {
+                    fs::write(&path, old).unwrap();
+                }
+                let result = store.save_with_io(
+                    dir.path(),
+                    |file, bytes| match fail_after {
+                        Some(count) => {
+                            file.write_all(&bytes[..count])?;
+                            Err(std::io::Error::from(kind))
+                        }
+                        None => file.write_all(bytes),
+                    },
+                    |file| {
+                        assert!(fail_after.is_none(), "sync followed a failed write");
+                        assert_eq!(
+                            file.metadata().unwrap().len(),
+                            serde_json::to_vec_pretty(&store).unwrap().len() as u64
+                        );
+                        Err(std::io::Error::from(kind))
+                    },
+                );
+                assert!(
+                    matches!(result, Err(KeystoreError::IoError(error)) if error.kind() == kind)
+                );
+                if existing {
+                    assert_eq!(fs::read(&path).unwrap(), old);
+                } else {
+                    assert!(!path.exists());
+                }
+                assert_eq!(
+                    fs::read_dir(dir.path()).unwrap().count(),
+                    usize::from(existing)
+                );
+                store.save_to_file(dir.path()).unwrap();
+                let loaded = Keystore::<TestKey>::load_from_file(&path, "password").unwrap();
+                assert_eq!(loaded.key().unwrap().0, store.key().unwrap().0);
+                assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+            }
+        }
     }
 
     #[test]

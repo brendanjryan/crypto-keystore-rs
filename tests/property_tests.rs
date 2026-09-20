@@ -1,6 +1,4 @@
 #![cfg(any(feature = "ethereum", feature = "solana"))]
-mod common;
-
 use proptest::prelude::*;
 use proptest::test_runner::Config as ProptestConfig;
 

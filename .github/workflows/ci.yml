@@ -108,6 +108,29 @@ jobs:
           name: coverage
           path: coverage.lcov
 
+  branch-coverage:
+    name: Branch coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-08
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: branch-coverage
+      - run: make branch-coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: branch-coverage
+          path: target/branch-coverage.json
+
   semver:
     name: API compatibility
     runs-on: ubuntu-latest

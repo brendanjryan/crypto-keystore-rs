@@ -1,5 +1,7 @@
+#[cfg(feature = "ethereum")]
 mod common;
 
+#[cfg(feature = "ethereum")]
 use common::TEST_PASSWORD;
 
 #[cfg(feature = "ethereum")]

@@ -1,4 +1,4 @@
-.PHONY: build release clean check test fix coverage mutations fuzz interop
+.PHONY: build release clean check test fix coverage branch-coverage mutations fuzz interop
 
 build:
 	cargo build
@@ -24,6 +24,10 @@ fix:
 
 coverage:
 	cargo llvm-cov --release --all-features --ignore-filename-regex '/tests/' --fail-under-lines 90 --html
+
+branch-coverage:
+	cargo +nightly-2026-06-08 llvm-cov --release --all-features --branch --ignore-filename-regex '/tests/' --json --output-path target/branch-coverage.json
+	python3 scripts/check-branch-coverage.py target/branch-coverage.json
 
 mutations:
 	python3 scripts/check-security-mutations.py

@@ -1,7 +1,11 @@
+#![cfg(any(feature = "ethereum", feature = "solana"))]
 mod common;
 
 use common::TEST_PASSWORD;
-use crypto_keystore_rs::{KdfConfig, Keystore, VERSION_5};
+use crypto_keystore_rs::KdfConfig;
+#[cfg(feature = "ethereum")]
+use crypto_keystore_rs::{Keystore, VERSION_5};
+#[cfg(feature = "ethereum")]
 use rand::SeedableRng;
 
 #[cfg(feature = "ethereum")]

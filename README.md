@@ -202,6 +202,7 @@ cargo test                                     # All tests
 cargo test --no-default-features --features ethereum  # Ethereum only
 cargo test --no-default-features --features solana    # Solana only
 make coverage                                  # Source coverage; requires cargo-llvm-cov
+make branch-coverage                           # 95% production-branch gate; nightly-2026-06-08 + llvm-tools-preview
 make mutations                                 # Requires cargo-mutants and Python 3
 make fuzz                                      # Requires cargo-fuzz and nightly Rust
 make interop                                   # Requires Node.js 22 (OpenSSL)
