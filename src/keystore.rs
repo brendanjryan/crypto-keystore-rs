@@ -225,6 +225,21 @@ enum KdfparamsType {
 }
 
 impl<K: ChainKey> Keystore<K> {
+    fn validate_version_chain(version: u32, chain: Option<&str>) -> Result<()> {
+        KeystoreVersion::from_u32(version)?;
+        let valid = if version == VERSION_3 {
+            K::CHAIN_ID == "ethereum" && chain.is_none_or(|chain| chain == "ethereum")
+        } else {
+            chain == Some(K::CHAIN_ID)
+        };
+        if !valid {
+            return Err(KeystoreError::UnsupportedChain(
+                chain.unwrap_or("missing chain").into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Helper to generate random bytes using a cryptographically secure RNG.
     #[inline]
     fn generate_random_bytes<R: RngCore + CryptoRng>(rng: &mut R, len: usize) -> Vec<u8> {
@@ -670,9 +685,7 @@ impl<K: ChainKey> Keystore<K> {
     ) -> Result<Self> {
         let mut keystore: Keystore<K> = serde_json::from_str(json)?;
 
-        if keystore.version != VERSION_3 && keystore.version != VERSION_4 {
-            return Err(KeystoreError::UnsupportedVersion(keystore.version));
-        }
+        Self::validate_version_chain(keystore.version, keystore.chain.as_deref())?;
 
         if keystore.crypto.cipher != CIPHER_NAME {
             return Err(KeystoreError::UnsupportedCipher(
@@ -1052,6 +1065,12 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// # }
     /// ```
     pub fn build<S: AsRef<str>>(self, password: S) -> Result<Keystore<K>> {
+        let chain = if self.version == VERSION_3 {
+            None
+        } else {
+            Some(K::CHAIN_ID)
+        };
+        Keystore::<K>::validate_version_chain(self.version, chain)?;
         let uuid = self
             .uuid
             .map(|id| {
@@ -1075,6 +1094,7 @@ impl<K: ChainKey> KeystoreBuilder<K> {
             keystore.id = uuid;
         }
         keystore.version = self.version;
+        keystore.chain = chain.map(str::to_owned);
 
         Ok(keystore)
     }
