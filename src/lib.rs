@@ -30,7 +30,7 @@ pub mod keystore;
 
 pub use chains::ChainKey;
 pub use error::{KeystoreError, Result};
-pub use kdf_config::{KdfConfig, KdfParams, KdfType};
+pub use kdf_config::{KdfConfig, KdfLimits, KdfParams, KdfType};
 pub use keystore::{Keystore, KeystoreBuilder, KeystoreVersion, VERSION_3, VERSION_4};
 
 // == Keys ==
