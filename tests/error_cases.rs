@@ -84,10 +84,10 @@ fn rejects_unsupported_version_2() {
 
 #[test]
 #[cfg(feature = "ethereum")]
-fn rejects_future_version_5() {
-    let json = create_keystore_json_with_version(5);
+fn rejects_future_version_6() {
+    let json = create_keystore_json_with_version(6);
     let result = EthereumKeystore::from_json(&json, TEST_PASSWORD);
-    assert!(matches!(result, Err(KeystoreError::UnsupportedVersion(5))));
+    assert!(matches!(result, Err(KeystoreError::UnsupportedVersion(6))));
 }
 
 // ==========================

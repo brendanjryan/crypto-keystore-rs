@@ -25,8 +25,8 @@ fn rejects_short_derived_keys_without_panicking() {
 fn rejects_invalid_iv_mac_and_ciphertext_lengths_before_kdf() {
     let base = fixture(KdfConfig::custom_pbkdf2(1));
     for (pointer, valid_len) in [
-        ("/crypto/cipherparams/iv", 16),
-        ("/crypto/mac", 32),
+        ("/crypto/cipherparams/iv", 12),
+        ("/crypto/mac", 16),
         ("/crypto/ciphertext", 32),
     ] {
         for len in [0, 1, valid_len - 1, valid_len + 1] {

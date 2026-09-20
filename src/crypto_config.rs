@@ -20,3 +20,8 @@ pub(crate) const MAC_KEY_SIZE: usize = 16;
 
 /// Supported pseudo-random function for PBKDF2
 pub(crate) const SUPPORTED_PRF: &str = "hmac-sha256";
+
+/// Authenticated encryption used by version 5.
+pub(crate) const AUTHENTICATED_CIPHER_NAME: &str = "aes-256-gcm";
+pub(crate) const GCM_NONCE_SIZE: usize = 12;
+pub(crate) const GCM_TAG_SIZE: usize = 16;

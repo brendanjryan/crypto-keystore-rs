@@ -13,7 +13,7 @@ This library extends the core web3 keystore spec [ref](https://ethereum.org/deve
 ## Features
 
 - **Multi-chain support**: Ethereum (secp256k1) and Solana (Ed25519) keys
-- **Web3 compatibility**: Supports Web3 Secret Storage format v3 (Ethereum) and v4 (chain-neutral)
+- **Web3 compatibility**: Authenticated v5 format, with legacy v3 (Ethereum) and v4 (chain-neutral) support
 - **Secure**: Uses audited cryptographic libraries from [RustCrypto](https://github.com/RustCrypto)
 - **Zero-copy**: Keys are zeroized on drop to prevent memory leaks
 - **Opt-in functionality**: Only compile what you need (ethereum, solana, or both)
@@ -125,9 +125,15 @@ pub trait ChainKey: Sized {
 
 ### Keystore Format
 
+New keystores use **version 5**, with AES-256-GCM authenticating the nonce,
+ciphertext, UUID, chain, and cryptographic parameters. See [format and migration
+details](FORMAT.md). Legacy v3/v4 files remain readable; their MACs do not
+authenticate the IV.
+
+
 The library uses a JSON-based keystore format inspired by the Web3 Secret Storage Definition, but extended to support chains other than Ethereum.:
 
-**Version 4 (Chain-neutral):**
+**Legacy version 4 (chain-neutral):**
 ```json
 {
   "crypto": {
