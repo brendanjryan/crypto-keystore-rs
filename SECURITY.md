@@ -64,6 +64,13 @@ parameters. See [the format definition and migration example](FORMAT.md).
 Legacy v3/v4 MACs do not cover the IV; migration requires decrypting and
 re-encrypting a trusted copy, not editing its version number.
 
+Import methods reject JSON larger than 64 KiB by default, including whitespace
+and ignored fields. File reads are bounded before parsing, and ciphertext, IV,
+and MAC lengths are checked before hex decoding. `ImportLimits` configures the
+input byte ceiling separately from `KdfLimits`; use `from_json_with_import_limits`
+or `load_from_file_with_import_limits` to override it. Direct Serde deserialization
+does not apply these import limits or decrypt keys.
+
 KDF import limits reject excessive derived-key lengths, PBKDF2 iterations, and
 scrypt memory/work before derivation. Applications handling untrusted files should
 set budgets appropriate to their hardware and bound concurrent imports.

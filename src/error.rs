@@ -16,6 +16,9 @@ pub enum KeystoreError {
     #[error("Incorrect password")]
     IncorrectPassword,
 
+    #[error("Keystore input exceeds the {max_bytes}-byte limit")]
+    InputTooLarge { max_bytes: usize },
+
     #[error("Invalid keystore UUID: {0}")]
     InvalidId(String),
 

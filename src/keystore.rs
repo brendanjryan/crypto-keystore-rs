@@ -1,6 +1,7 @@
 use crate::chains::ChainKey;
 use crate::crypto_config::*;
 use crate::error::{KeystoreError, Result};
+use crate::import_limits::ImportLimits;
 use crate::kdf_config::{KdfConfig, KdfLimits, KdfParams};
 use aes::cipher::{KeyIvInit, StreamCipher};
 use aes_gcm::{
@@ -14,7 +15,7 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -22,8 +23,6 @@ use zeroize::Zeroizing;
 
 #[cfg(feature = "ethereum")]
 use sha3::Keccak256;
-
-type Aes128Ctr = ctr::Ctr64BE<aes::Aes128>;
 
 /// Type-safe keystore format version.
 ///
@@ -595,6 +594,20 @@ impl<K: ChainKey> Keystore<K> {
         )
     }
 
+    fn apply_legacy_keystream(version: u32, key: &[u8], iv: &[u8], data: &mut [u8]) -> Result<()> {
+        // Web3 v3 increments the full counter; v4 preserves the original format.
+        if version == VERSION_3 {
+            ctr::Ctr128BE::<aes::Aes128>::new_from_slices(key, iv)
+                .map_err(|_| KeystoreError::CorruptedData)?
+                .try_apply_keystream(data)
+        } else {
+            ctr::Ctr64BE::<aes::Aes128>::new_from_slices(key, iv)
+                .map_err(|_| KeystoreError::CorruptedData)?
+                .try_apply_keystream(data)
+        }
+        .map_err(|_| KeystoreError::CorruptedData)
+    }
+
     fn authenticated_metadata(&self) -> Result<Vec<u8>> {
         serde_json::to_vec(&(
             "crypto-keystore",
@@ -680,9 +693,12 @@ impl<K: ChainKey> Keystore<K> {
                 .map_err(|_| KeystoreError::CryptoError("AES-GCM encryption failed".into()))?
                 .to_vec()
         } else {
-            let mut cipher = Aes128Ctr::new_from_slices(&derived_key[..ENCRYPTION_KEY_SIZE], &iv)
-                .map_err(|_| KeystoreError::CorruptedData)?;
-            cipher.apply_keystream(&mut ciphertext);
+            Self::apply_legacy_keystream(
+                version,
+                &derived_key[..ENCRYPTION_KEY_SIZE],
+                &iv,
+                &mut ciphertext,
+            )?;
             Self::compute_mac(
                 &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE],
                 &ciphertext,
@@ -746,7 +762,7 @@ impl<K: ChainKey> Keystore<K> {
         Ok(&self.id)
     }
 
-    /// Loads and decrypts a keystore from a JSON file.
+    /// Loads and decrypts a keystore from a JSON file, limited to 64 KiB.
     ///
     /// # Arguments
     ///
@@ -778,17 +794,49 @@ impl<K: ChainKey> Keystore<K> {
         Self::load_from_file_with_limits(path, password, KdfLimits::default())
     }
 
-    /// Loads a keystore with explicit KDF resource ceilings.
+    /// Loads a keystore with explicit KDF ceilings and the default 64 KiB input limit.
     pub fn load_from_file_with_limits<P: AsRef<Path>, S: AsRef<str>>(
         path: P,
         password: S,
         limits: KdfLimits,
     ) -> Result<Self> {
-        let contents = fs::read_to_string(path)?;
-        Self::from_json_with_limits(&contents, password, limits)
+        Self::load_from_file_with_import_limits(
+            path,
+            password,
+            ImportLimits {
+                kdf: limits,
+                ..ImportLimits::default()
+            },
+        )
     }
 
-    /// Decrypts a keystore from a JSON string.
+    /// Loads a keystore with explicit input-size and KDF resource ceilings.
+    ///
+    /// Reads at most `max_input_bytes + 1` bytes, rejecting oversized files with
+    /// `InputTooLarge` before parsing. Raising limits permits more resource use.
+    pub fn load_from_file_with_import_limits<P: AsRef<Path>, S: AsRef<str>>(
+        path: P,
+        password: S,
+        limits: ImportLimits,
+    ) -> Result<Self> {
+        let contents = Self::read_limited(fs::File::open(path)?, limits.max_input_bytes)?;
+        let json = std::str::from_utf8(&contents)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        Self::from_json_with_import_limits(json, password, limits)
+    }
+
+    fn read_limited(reader: impl Read, max_bytes: usize) -> Result<Vec<u8>> {
+        let mut contents = Vec::new();
+        reader
+            .take((max_bytes as u64).saturating_add(1))
+            .read_to_end(&mut contents)?;
+        if contents.len() > max_bytes {
+            return Err(KeystoreError::InputTooLarge { max_bytes });
+        }
+        Ok(contents)
+    }
+
+    /// Decrypts a keystore from a JSON string, limited to 64 KiB.
     ///
     /// # Arguments
     ///
@@ -804,13 +852,48 @@ impl<K: ChainKey> Keystore<K> {
 
     /// Decrypts JSON after checking caller-selected KDF resource ceilings.
     ///
-    /// Returns `InvalidKdfParams` before allocation or derivation if the KDF
-    /// exceeds the limits. Raising limits permits more work on untrusted input.
+    /// Enforces the default 64 KiB input limit before parsing. Returns
+    /// `InvalidKdfParams` before KDF allocation or derivation if the KDF exceeds
+    /// the limits. Raising limits permits more work on untrusted input.
     pub fn from_json_with_limits<S: AsRef<str>>(
         json: &str,
         password: S,
         limits: KdfLimits,
     ) -> Result<Self> {
+        Self::from_json_with_import_limits(
+            json,
+            password,
+            ImportLimits {
+                kdf: limits,
+                ..ImportLimits::default()
+            },
+        )
+    }
+
+    /// Decrypts JSON with explicit input-size and KDF resource ceilings.
+    ///
+    /// Returns `InputTooLarge` before parsing when the UTF-8 input exceeds
+    /// `max_input_bytes`, counting whitespace and ignored fields.
+    ///
+    /// ```no_run
+    /// # #[cfg(feature = "ethereum")]
+    /// # {
+    /// use crypto_keystore_rs::{EthereumKeystore, ImportLimits};
+    /// # let json = "{}";
+    /// let limits = ImportLimits { max_input_bytes: 4096, ..ImportLimits::default() };
+    /// let store = EthereumKeystore::from_json_with_import_limits(json, "password", limits);
+    /// # }
+    /// ```
+    pub fn from_json_with_import_limits<S: AsRef<str>>(
+        json: &str,
+        password: S,
+        limits: ImportLimits,
+    ) -> Result<Self> {
+        if json.len() > limits.max_input_bytes {
+            return Err(KeystoreError::InputTooLarge {
+                max_bytes: limits.max_input_bytes,
+            });
+        }
         let mut keystore: Keystore<K> = serde_json::from_str(json)?;
 
         Self::validate_version_chain(keystore.version, keystore.chain.as_deref())?;
@@ -827,21 +910,15 @@ impl<K: ChainKey> Keystore<K> {
             ));
         }
 
-        let ciphertext_bytes = hex::decode(&keystore.crypto.ciphertext)
-            .map_err(|e| KeystoreError::HexError(format!("Invalid ciphertext: {e}")))?;
-        let expected_mac_bytes = hex::decode(&keystore.crypto.mac)
-            .map_err(|e| KeystoreError::HexError(format!("Invalid MAC: {e}")))?;
-        let iv_bytes = hex::decode(&keystore.crypto.cipherparams.iv)
-            .map_err(|e| KeystoreError::HexError(format!("Invalid IV: {e}")))?;
-        if ciphertext_bytes.len() != K::KEYSTORE_SIZE
-            || expected_mac_bytes.len()
-                != if authenticated {
+        if K::KEYSTORE_SIZE.checked_mul(2) != Some(keystore.crypto.ciphertext.len())
+            || keystore.crypto.mac.len()
+                != 2 * if authenticated {
                     GCM_TAG_SIZE
                 } else {
                     DEFAULT_KEY_SIZE
                 }
-            || iv_bytes.len()
-                != if authenticated {
+            || keystore.crypto.cipherparams.iv.len()
+                != 2 * if authenticated {
                     GCM_NONCE_SIZE
                 } else {
                     DEFAULT_IV_SIZE
@@ -849,8 +926,14 @@ impl<K: ChainKey> Keystore<K> {
         {
             return Err(KeystoreError::CorruptedData);
         }
+        let ciphertext_bytes = hex::decode(&keystore.crypto.ciphertext)
+            .map_err(|e| KeystoreError::HexError(format!("Invalid ciphertext: {e}")))?;
+        let expected_mac_bytes = hex::decode(&keystore.crypto.mac)
+            .map_err(|e| KeystoreError::HexError(format!("Invalid MAC: {e}")))?;
+        let iv_bytes = hex::decode(&keystore.crypto.cipherparams.iv)
+            .map_err(|e| KeystoreError::HexError(format!("Invalid IV: {e}")))?;
 
-        Self::validate_kdf_limits(&keystore.crypto.kdfparams, limits)?;
+        Self::validate_kdf_limits(&keystore.crypto.kdfparams, limits.kdf)?;
         let derived_key = Self::derive_key(password.as_ref(), &keystore.crypto.kdfparams)?;
         let mut plaintext = Zeroizing::new(ciphertext_bytes);
         if authenticated {
@@ -872,9 +955,12 @@ impl<K: ChainKey> Keystore<K> {
             if !bool::from(computed_mac.ct_eq(&expected_mac_bytes)) {
                 return Err(KeystoreError::IncorrectPassword);
             }
-            let mut cipher = Aes128Ctr::new_from_slices(encryption_key, &iv_bytes)
-                .map_err(|_| KeystoreError::CorruptedData)?;
-            cipher.apply_keystream(&mut plaintext);
+            Self::apply_legacy_keystream(
+                keystore.version,
+                encryption_key,
+                &iv_bytes,
+                &mut plaintext,
+            )?;
         }
 
         let key = K::from_keystore_bytes(&plaintext)?;
@@ -1284,6 +1370,94 @@ mod tests {
 
         fn address(&self) -> String {
             hex::encode(&self.0)
+        }
+    }
+
+    // OpenSSL AES-128-CTR vectors; the v4 column uses AES-ECB on each
+    // counter block with only the low 64 bits incremented.
+    #[test]
+    #[cfg(feature = "ethereum")]
+    fn legacy_counter_boundaries_match_independent_vectors() {
+        struct FixedRng([u8; 16]);
+        impl CryptoRng for FixedRng {}
+        impl RngCore for FixedRng {
+            fn next_u32(&mut self) -> u32 {
+                let mut bytes = [0; 4];
+                self.fill_bytes(&mut bytes);
+                u32::from_le_bytes(bytes)
+            }
+            fn next_u64(&mut self) -> u64 {
+                let mut bytes = [0; 8];
+                self.fill_bytes(&mut bytes);
+                u64::from_le_bytes(bytes)
+            }
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                if dest.len() == 16 {
+                    dest.copy_from_slice(&self.0);
+                } else {
+                    dest.fill(0);
+                }
+            }
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), rand::Error> {
+                self.fill_bytes(dest);
+                Ok(())
+            }
+        }
+
+        for (iv, v3, v4) in [
+            (
+                "0000000000000000fffffffffffffffe",
+                "1e8efbc96e5dda122904e48d091edc4cb3a854c9ae7d31982dbf902e534aa279",
+                "1e8efbc96e5dda122904e48d091edc4cb3a854c9ae7d31982dbf902e534aa279",
+            ),
+            (
+                "0000000000000000ffffffffffffffff",
+                "b3a854c9ae7d31982dbf902e534aa27892f3f62b9b9e7141fbfd926ab5ce5797",
+                "b3a854c9ae7d31982dbf902e534aa278c716315cb12f3b283ee90e67d987d894",
+            ),
+            (
+                "ffffffffffffffffffffffffffffffff",
+                "02427e9cef0641e4bca2b0f2a16d2855c716315cb12f3b283ee90e67d987d894",
+                "02427e9cef0641e4bca2b0f2a16d2855b059a764f03590533f203378c9474a56",
+            ),
+        ] {
+            for (version, expected) in [(VERSION_3, v3), (VERSION_4, v4)] {
+                let mut secret = [0; 32];
+                secret[31] = 1;
+                let key = crate::EthereumKey::from_keystore_bytes(&secret).unwrap();
+                let mut rng = FixedRng(hex::decode(iv).unwrap().try_into().unwrap());
+                let store = Keystore::encrypt(
+                    &mut rng,
+                    key,
+                    "password",
+                    KdfConfig::custom_pbkdf2(2),
+                    version,
+                    "3198bc9c-6672-5ab3-d995-4942343ae5b6".into(),
+                )
+                .unwrap();
+                assert_eq!(store.crypto.ciphertext, expected, "v{version}, IV {iv}");
+                let loaded =
+                    crate::EthereumKeystore::from_json(&store.to_json().unwrap(), "password")
+                        .unwrap();
+                assert_eq!(loaded.key().unwrap().to_keystore_bytes().as_slice(), secret);
+            }
+        }
+    }
+
+    #[test]
+    fn bounded_reader_consumes_only_one_byte_beyond_the_limit() {
+        for limit in [0, 1, 16, 64 * 1024] {
+            let mut reader = std::io::Cursor::new(vec![b' '; limit + 1024]);
+            assert!(matches!(
+                Keystore::<TestKey>::read_limited(&mut reader, limit),
+                Err(KeystoreError::InputTooLarge { max_bytes }) if max_bytes == limit
+            ));
+            assert_eq!(reader.position(), (limit + 1) as u64);
+            let contents = vec![b' '; limit];
+            assert_eq!(
+                Keystore::<TestKey>::read_limited(contents.as_slice(), limit).unwrap(),
+                contents
+            );
         }
     }
 

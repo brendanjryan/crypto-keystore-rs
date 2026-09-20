@@ -48,6 +48,30 @@ crypto-keystore-rs = "0.2"
 
 ## Usage
 
+### Import limits
+
+Keystore imports default to a 64 KiB JSON/file limit and bounded KDF work. To
+configure input size separately from KDF budgets:
+
+```rust
+use crypto_keystore_rs::{EthereumKeystore, ImportLimits, KdfLimits};
+
+let limits = ImportLimits {
+    max_input_bytes: 4096,
+    kdf: KdfLimits {
+        max_pbkdf2_iterations: 600_000,
+        ..KdfLimits::default()
+    },
+};
+let loaded = EthereumKeystore::load_from_file_with_import_limits(
+    "keystore.json", "password", limits,
+)?;
+```
+
+`from_json_with_import_limits` applies the same policy to JSON strings. Existing
+`*_with_limits` methods still accept `KdfLimits` and use the default input cap.
+Oversized input returns `KeystoreError::InputTooLarge` before JSON parsing.
+
 ### Ethereum Example
 
 ```rust
