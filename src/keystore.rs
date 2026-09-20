@@ -718,6 +718,8 @@ impl<K: ChainKey> Keystore<K> {
     /// The file is synced before replacement, but the parent directory is not
     /// synced afterward. Successful return does not guarantee durability across
     /// power loss; retain a separate backup.
+    /// On Windows, concurrent access can cause replacement to fail with an I/O
+    /// error. Callers may retry after competing file handles have been closed.
     ///
     /// On Unix systems, the file is created with mode 0600 (owner read/write only)
     /// to protect sensitive key material.

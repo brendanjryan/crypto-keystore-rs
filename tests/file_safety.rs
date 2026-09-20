@@ -166,7 +166,14 @@ fn concurrent_writes_are_read_as_complete_keystores() {
             scope.spawn(move || {
                 barrier.wait();
                 for _ in 0..16 {
-                    store.save_to_file(dir).unwrap();
+                    match store.save_to_file(dir) {
+                        Ok(_) => {}
+                        // Windows can deny replacement while another handle is open.
+                        #[cfg(windows)]
+                        Err(KeystoreError::IoError(error))
+                            if matches!(error.raw_os_error(), Some(5 | 32)) => {}
+                        Err(error) => panic!("concurrent save failed: {error}"),
+                    }
                 }
             });
         }
@@ -177,5 +184,13 @@ fn concurrent_writes_are_read_as_complete_keystores() {
             assert!(expected.contains(&key));
         }
     });
+    for store in &stores {
+        store.save_to_file(dir.path()).unwrap();
+        let loaded = EthereumKeystore::load_from_file(&path, "password").unwrap();
+        assert_eq!(
+            loaded.key().unwrap().to_keystore_bytes(),
+            store.key().unwrap().to_keystore_bytes()
+        );
+    }
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
