@@ -1,7 +1,7 @@
 use crate::chains::ChainKey;
 use crate::crypto_config::*;
 use crate::error::{KeystoreError, Result};
-use crate::kdf_config::{KdfConfig, KdfParams};
+use crate::kdf_config::{KdfConfig, KdfLimits, KdfParams};
 use aes::cipher::{KeyIvInit, StreamCipher};
 use pbkdf2::pbkdf2_hmac;
 use rand::{CryptoRng, RngCore};
@@ -225,6 +225,21 @@ enum KdfparamsType {
 }
 
 impl<K: ChainKey> Keystore<K> {
+    fn validate_version_chain(version: u32, chain: Option<&str>) -> Result<()> {
+        KeystoreVersion::from_u32(version)?;
+        let valid = if version == VERSION_3 {
+            K::CHAIN_ID == "ethereum" && chain.is_none_or(|chain| chain == "ethereum")
+        } else {
+            chain == Some(K::CHAIN_ID)
+        };
+        if !valid {
+            return Err(KeystoreError::UnsupportedChain(
+                chain.unwrap_or("missing chain").into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Helper to generate random bytes using a cryptographically secure RNG.
     #[inline]
     fn generate_random_bytes<R: RngCore + CryptoRng>(rng: &mut R, len: usize) -> Vec<u8> {
@@ -296,6 +311,28 @@ impl<K: ChainKey> Keystore<K> {
                 Ok(key)
             }
         }
+    }
+
+    fn validate_kdf_limits(params: &KdfparamsType, limits: KdfLimits) -> Result<()> {
+        let (dklen, within_budget) = match params {
+            KdfparamsType::Pbkdf2 { dklen, c, .. } => (*dklen, *c <= limits.max_pbkdf2_iterations),
+            KdfparamsType::Scrypt { dklen, n, r, p, .. } => {
+                let (n, r, p) = (u64::from(*n), u64::from(*r), u64::from(*p));
+                let memory = (128 * r).checked_mul(n + p + 2);
+                let work = n.checked_mul(r).and_then(|nr| nr.checked_mul(p));
+                (
+                    *dklen,
+                    memory.is_some_and(|bytes| bytes <= limits.max_scrypt_memory_bytes)
+                        && work.is_some_and(|units| units <= limits.max_scrypt_work),
+                )
+            }
+        };
+        if dklen > limits.max_dklen || !within_budget {
+            return Err(KeystoreError::InvalidKdfParams(
+                "KDF exceeds import resource limits".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Determines whether to use Keccak256 (Ethereum) or SHA256 (other chains) for MAC.
@@ -610,8 +647,17 @@ impl<K: ChainKey> Keystore<K> {
     /// # }
     /// ```
     pub fn load_from_file<P: AsRef<Path>, S: AsRef<str>>(path: P, password: S) -> Result<Self> {
+        Self::load_from_file_with_limits(path, password, KdfLimits::default())
+    }
+
+    /// Loads a keystore with explicit KDF resource ceilings.
+    pub fn load_from_file_with_limits<P: AsRef<Path>, S: AsRef<str>>(
+        path: P,
+        password: S,
+        limits: KdfLimits,
+    ) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
-        Self::from_json(&contents, password)
+        Self::from_json_with_limits(&contents, password, limits)
     }
 
     /// Decrypts a keystore from a JSON string.
@@ -625,11 +671,21 @@ impl<K: ChainKey> Keystore<K> {
     ///
     /// Returns an error if password is incorrect or format is invalid.
     pub fn from_json<S: AsRef<str>>(json: &str, password: S) -> Result<Self> {
+        Self::from_json_with_limits(json, password, KdfLimits::default())
+    }
+
+    /// Decrypts JSON after checking caller-selected KDF resource ceilings.
+    ///
+    /// Returns `InvalidKdfParams` before allocation or derivation if the KDF
+    /// exceeds the limits. Raising limits permits more work on untrusted input.
+    pub fn from_json_with_limits<S: AsRef<str>>(
+        json: &str,
+        password: S,
+        limits: KdfLimits,
+    ) -> Result<Self> {
         let mut keystore: Keystore<K> = serde_json::from_str(json)?;
 
-        if keystore.version != VERSION_3 && keystore.version != VERSION_4 {
-            return Err(KeystoreError::UnsupportedVersion(keystore.version));
-        }
+        Self::validate_version_chain(keystore.version, keystore.chain.as_deref())?;
 
         if keystore.crypto.cipher != CIPHER_NAME {
             return Err(KeystoreError::UnsupportedCipher(
@@ -650,6 +706,7 @@ impl<K: ChainKey> Keystore<K> {
             return Err(KeystoreError::CorruptedData);
         }
 
+        Self::validate_kdf_limits(&keystore.crypto.kdfparams, limits)?;
         let mut derived_key = Self::derive_key(password.as_ref(), &keystore.crypto.kdfparams)?;
         let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
         let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
@@ -1008,6 +1065,12 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// # }
     /// ```
     pub fn build<S: AsRef<str>>(self, password: S) -> Result<Keystore<K>> {
+        let chain = if self.version == VERSION_3 {
+            None
+        } else {
+            Some(K::CHAIN_ID)
+        };
+        Keystore::<K>::validate_version_chain(self.version, chain)?;
         let uuid = self
             .uuid
             .map(|id| {
@@ -1031,6 +1094,7 @@ impl<K: ChainKey> KeystoreBuilder<K> {
             keystore.id = uuid;
         }
         keystore.version = self.version;
+        keystore.chain = chain.map(str::to_owned);
 
         Ok(keystore)
     }
