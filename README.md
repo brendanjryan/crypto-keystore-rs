@@ -201,9 +201,8 @@ make fix            # Auto-fix formatting and clippy warnings
 cargo test                                     # All tests
 cargo test --no-default-features --features ethereum  # Ethereum only
 cargo test --no-default-features --features solana    # Solana only
+make coverage                                  # Source coverage; requires cargo-llvm-cov
+make mutations                                 # Requires cargo-mutants and Python 3
+make fuzz                                      # Requires cargo-fuzz and nightly Rust
+make interop                                   # Requires Node.js 22 (OpenSSL)
 ```
-
-## Testing and security checks
-
-See [TESTING.md](TESTING.md) for mutation testing, fuzzing, OpenSSL interoperability,
-coverage reports, supported Rust versions, and the file-durability contract.

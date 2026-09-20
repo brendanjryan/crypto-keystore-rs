@@ -1467,6 +1467,35 @@ mod tests {
     }
 
     #[test]
+    fn bounded_reader_propagates_errors_after_partial_reads() {
+        struct FailingReader;
+        impl Read for FailingReader {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("read failed"))
+            }
+        }
+
+        for prefix in [b"".as_slice(), b"partial"] {
+            let reader = prefix.chain(FailingReader);
+            assert!(matches!(
+                Keystore::<TestKey>::read_limited(reader, 64),
+                Err(KeystoreError::IoError(error))
+                    if error.kind() == std::io::ErrorKind::Other
+                        && error.to_string() == "read failed"
+            ));
+        }
+    }
+
+    #[test]
+    #[cfg(not(feature = "ethereum"))]
+    fn legacy_ethereum_mac_requires_the_ethereum_feature() {
+        assert!(matches!(
+            Keystore::<TestKey>::compute_mac(&[0; 16], &[0; 32], true),
+            Err(KeystoreError::UnsupportedChain(_))
+        ));
+    }
+
+    #[test]
     fn test_keystore_new() {
         let password = "test_password";
 
