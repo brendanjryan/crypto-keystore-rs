@@ -99,7 +99,8 @@ impl ChainKey for EthereumKey {
     const CHAIN_ID: &'static str = "ethereum";
 
     fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
-        Zeroizing::new(self.signing_key.to_bytes().to_vec())
+        let bytes = Zeroizing::new(self.signing_key.to_bytes());
+        Zeroizing::new(bytes.to_vec())
     }
 
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {

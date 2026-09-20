@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::Path;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 #[cfg(feature = "ethereum")]
 use sha3::Keccak256;
@@ -305,7 +305,7 @@ impl<K: ChainKey> Keystore<K> {
     }
 
     /// Derives encryption key from password using specified KDF parameters.
-    fn derive_key(password: &str, kdfparams: &KdfparamsType) -> Result<Vec<u8>> {
+    fn derive_key(password: &str, kdfparams: &KdfparamsType) -> Result<Zeroizing<Vec<u8>>> {
         let dklen = match kdfparams {
             KdfparamsType::Pbkdf2 { dklen, .. } | KdfparamsType::Scrypt { dklen, .. } => *dklen,
         };
@@ -335,7 +335,7 @@ impl<K: ChainKey> Keystore<K> {
                 let salt_bytes = hex::decode(salt)
                     .map_err(|e| KeystoreError::HexError(format!("Invalid KDF salt: {e}")))?;
 
-                let mut key = vec![0u8; *dklen as usize];
+                let mut key = Zeroizing::new(vec![0u8; *dklen as usize]);
                 pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt_bytes, *c, &mut key);
                 Ok(key)
             }
@@ -359,7 +359,7 @@ impl<K: ChainKey> Keystore<K> {
                     KeystoreError::InvalidKdfParams(format!("Invalid scrypt params: {e}"))
                 })?;
 
-                let mut key = vec![0u8; *dklen as usize];
+                let mut key = Zeroizing::new(vec![0u8; *dklen as usize]);
                 scrypt(password.as_bytes(), &salt_bytes, &params, &mut key).map_err(|e| {
                     KeystoreError::CryptoError(format!("Scrypt derivation failed: {e}"))
                 })?;
@@ -564,7 +564,7 @@ impl<K: ChainKey> Keystore<K> {
         password: S,
         config: KdfConfig,
     ) -> Result<Self> {
-        let mut salt = Self::generate_random_bytes(rng, DEFAULT_KEY_SIZE);
+        let salt = Self::generate_random_bytes(rng, DEFAULT_KEY_SIZE);
 
         let kdfparams = match config.params() {
             KdfParams::Scrypt { log_n, r, p, dklen } => KdfparamsType::Scrypt {
@@ -583,12 +583,12 @@ impl<K: ChainKey> Keystore<K> {
                 salt: hex::encode(&salt),
             },
         };
-        let mut derived_key = Self::derive_key(password.as_ref(), &kdfparams)?;
+        let derived_key = Self::derive_key(password.as_ref(), &kdfparams)?;
 
         let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
         let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
 
-        let mut iv = Self::generate_random_bytes(rng, DEFAULT_IV_SIZE);
+        let iv = Self::generate_random_bytes(rng, DEFAULT_IV_SIZE);
 
         let mut cipher = Aes128Ctr::new(encryption_key.into(), iv.as_slice().into());
         let mut ciphertext = key.to_keystore_bytes();
@@ -606,10 +606,6 @@ impl<K: ChainKey> Keystore<K> {
             kdfparams,
             mac: hex::encode(&mac),
         };
-
-        derived_key.zeroize();
-        salt.zeroize();
-        iv.zeroize();
 
         let uuid = Uuid::new_v4();
 
@@ -763,7 +759,7 @@ impl<K: ChainKey> Keystore<K> {
         }
 
         Self::validate_kdf_limits(&keystore.crypto.kdfparams, limits)?;
-        let mut derived_key = Self::derive_key(password.as_ref(), &keystore.crypto.kdfparams)?;
+        let derived_key = Self::derive_key(password.as_ref(), &keystore.crypto.kdfparams)?;
         let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
         let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
 
@@ -774,19 +770,15 @@ impl<K: ChainKey> Keystore<K> {
         if computed_mac.len() != expected_mac_bytes.len()
             || !bool::from(computed_mac.ct_eq(&expected_mac_bytes))
         {
-            derived_key.zeroize();
             return Err(KeystoreError::IncorrectPassword);
         }
 
         let mut cipher = Aes128Ctr::new_from_slices(encryption_key, &iv_bytes)
             .map_err(|_| KeystoreError::CorruptedData)?;
-        let mut plaintext = ciphertext_bytes;
+        let mut plaintext = Zeroizing::new(ciphertext_bytes);
         cipher.apply_keystream(&mut plaintext);
 
         let key = K::from_keystore_bytes(&plaintext)?;
-
-        plaintext.zeroize();
-        derived_key.zeroize();
 
         keystore.key = Some(key);
 
