@@ -142,7 +142,7 @@ fn rejects_non_power_of_two_scrypt_n() {
     // Scrypt N must be a power of 2
     let json = create_keystore_json_with_scrypt_n(12345);
     let result = EthereumKeystore::from_json(&json, TEST_PASSWORD);
-    assert!(result.is_err());
+    assert!(matches!(result, Err(KeystoreError::InvalidKdfParams(_))));
     // Note: scrypt library will return an error for invalid params
 }
 
@@ -152,7 +152,7 @@ fn rejects_scrypt_n_too_small() {
     // N must be >= 2
     let json = create_keystore_json_with_scrypt_n(1);
     let result = EthereumKeystore::from_json(&json, TEST_PASSWORD);
-    assert!(result.is_err());
+    assert!(matches!(result, Err(KeystoreError::InvalidKdfParams(_))));
 }
 
 #[test]
