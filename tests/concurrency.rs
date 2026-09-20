@@ -169,7 +169,7 @@ fn concurrent_keystore_decryption_is_safe() {
         .map(|_| {
             let json = Arc::clone(&json);
             let password = Arc::clone(&password);
-            thread::spawn(move || EthereumKeystore::from_json(&*json, &*password).unwrap())
+            thread::spawn(move || EthereumKeystore::from_json(&json, &*password).unwrap())
         })
         .collect();
 

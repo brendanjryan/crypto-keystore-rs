@@ -1,7 +1,7 @@
 mod common;
 
 use common::TEST_PASSWORD;
-use crypto_keystore_rs::{KdfConfig, VERSION_4};
+use crypto_keystore_rs::{KdfConfig, VERSION_5};
 
 #[cfg(feature = "ethereum")]
 use crypto_keystore_rs::EthereumKeystore;
@@ -10,19 +10,19 @@ use crypto_keystore_rs::EthereumKeystore;
 use crypto_keystore_rs::SolanaKeystore;
 
 // ==========================
-// Version 4 (Multi-Chain) Format Tests
+// Version 5 (Multi-Chain) Format Tests
 // ==========================
 
 #[test]
 #[cfg(feature = "ethereum")]
-fn v4_ethereum_keystore_roundtrip() {
-    // Create a V4 Ethereum keystore
+fn v5_ethereum_keystore_roundtrip() {
+    // Create a V5 Ethereum keystore
     let keystore =
         EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let original_address = keystore.key().unwrap().address();
 
-    // Verify it's V4 with chain field
-    assert_eq!(keystore.version(), VERSION_4);
+    // Verify it's V5 with chain field
+    assert_eq!(keystore.version(), VERSION_5);
     assert_eq!(keystore.chain(), Some("ethereum"));
 
     // Serialize and deserialize
@@ -30,21 +30,21 @@ fn v4_ethereum_keystore_roundtrip() {
     let loaded = EthereumKeystore::from_json(&json, TEST_PASSWORD).unwrap();
 
     // Verify properties preserved
-    assert_eq!(loaded.version(), VERSION_4);
+    assert_eq!(loaded.version(), VERSION_5);
     assert_eq!(loaded.chain(), Some("ethereum"));
     assert_eq!(loaded.key().unwrap().address(), original_address);
 }
 
 #[test]
 #[cfg(feature = "solana")]
-fn v4_solana_keystore_roundtrip() {
-    // Create a V4 Solana keystore
+fn v5_solana_keystore_roundtrip() {
+    // Create a V5 Solana keystore
     let keystore =
         SolanaKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
     let original_address = keystore.key().unwrap().address();
 
-    // Verify it's V4 with chain field
-    assert_eq!(keystore.version(), VERSION_4);
+    // Verify it's V5 with chain field
+    assert_eq!(keystore.version(), VERSION_5);
     assert_eq!(keystore.chain(), Some("solana"));
 
     // Serialize and deserialize
@@ -52,7 +52,7 @@ fn v4_solana_keystore_roundtrip() {
     let loaded = SolanaKeystore::from_json(&json, TEST_PASSWORD).unwrap();
 
     // Verify properties preserved
-    assert_eq!(loaded.version(), VERSION_4);
+    assert_eq!(loaded.version(), VERSION_5);
     assert_eq!(loaded.chain(), Some("solana"));
     assert_eq!(loaded.key().unwrap().address(), original_address);
 }
@@ -108,7 +108,7 @@ fn newly_created_keystores_use_v4_format() {
     let keystore =
         EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
 
-    assert_eq!(keystore.version(), VERSION_4);
+    assert_eq!(keystore.version(), VERSION_5);
     assert_eq!(keystore.chain(), Some("ethereum"));
 }
 
@@ -118,7 +118,7 @@ fn solana_keystores_use_v4_format() {
     let keystore =
         SolanaKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
 
-    assert_eq!(keystore.version(), VERSION_4);
+    assert_eq!(keystore.version(), VERSION_5);
     assert_eq!(keystore.chain(), Some("solana"));
 }
 

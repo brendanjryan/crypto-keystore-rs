@@ -1,7 +1,7 @@
 mod common;
 
 use common::TEST_PASSWORD;
-use crypto_keystore_rs::{KdfConfig, Keystore, VERSION_4};
+use crypto_keystore_rs::{KdfConfig, Keystore, VERSION_5};
 use rand::SeedableRng;
 
 #[cfg(feature = "ethereum")]
@@ -30,10 +30,10 @@ fn keystore_id_returns_valid_uuid() {
 
 #[test]
 #[cfg(feature = "ethereum")]
-fn keystore_version_returns_v4() {
+fn keystore_version_returns_v5() {
     let keystore =
         EthereumKeystore::new_with_config(TEST_PASSWORD, KdfConfig::scrypt_interactive()).unwrap();
-    assert_eq!(keystore.version(), VERSION_4);
+    assert_eq!(keystore.version(), VERSION_5);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn to_json_produces_valid_json() {
     // Verify required fields exist
     assert!(parsed["crypto"].is_object());
     assert!(parsed["id"].is_string());
-    assert_eq!(parsed["version"], 4);
+    assert_eq!(parsed["version"], 5);
     assert_eq!(parsed["chain"], "ethereum");
 }
 
