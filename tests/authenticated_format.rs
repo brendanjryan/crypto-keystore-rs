@@ -1,3 +1,4 @@
+#![cfg(any(feature = "ethereum", feature = "solana"))]
 use crypto_keystore_rs::{
     ChainKey, KdfConfig, Keystore, KeystoreBuilder, KeystoreError, VERSION_4, VERSION_5,
 };

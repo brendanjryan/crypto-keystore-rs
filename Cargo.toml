@@ -49,7 +49,7 @@ proptest = "1.4"
 default = ["ethereum", "solana"]
 ethereum = ["k256", "sha3"]
 solana = ["ed25519-dalek", "bs58"]
-# Use weak crypto params for faster tests (never use in production!)
+# Compatibility feature; has no effect on cryptographic defaults.
 test-utils = []
 
 [[example]]

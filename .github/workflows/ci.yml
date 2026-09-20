@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +19,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
-      - run: cargo clippy -- -D warnings
+      - run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -33,9 +32,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --verbose
-      # important! `test-utils` must be enabled otherwise
-      # tests will be slow.
-      - run: cargo test --verbose --features test-utils
+      - run: cargo test --verbose
 
   feature-tests:
     name: Features (${{ matrix.features }})
@@ -53,7 +50,7 @@ jobs:
       - name: Test feature
         run: |
           if [ "${{ matrix.features }}" = "none" ]; then
-            cargo build --no-default-features
+            cargo test --no-default-features
           else
-            cargo test --no-default-features --features ${{ matrix.features }},test-utils
+            cargo test --no-default-features --features ${{ matrix.features }}
           fi
