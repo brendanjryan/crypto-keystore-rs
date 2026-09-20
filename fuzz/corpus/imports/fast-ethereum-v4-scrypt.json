@@ -1,0 +1,19 @@
+{
+  "crypto": {
+    "cipher": "aes-128-ctr",
+    "cipherparams": {
+      "iv": "b26ceacec44ed26f06876f0d6b7f22ef"
+    },
+    "ciphertext": "547e8a3478fe856cb71ee0cf6f88d632ab7820a67237c5cdf0c38a0937e8d733",
+    "dklen": 32,
+    "kdf": "scrypt",
+    "mac": "6d94155a76a44ef8d2fdd3c1a5c177c1d25f007611bdbedb30020b0041cad20d",
+    "n": 16,
+    "p": 1,
+    "r": 8,
+    "salt": "0b2d78b4293eba0155bcc62c1615fd28f0a04c8104a2a42f22b89c58292dd41c"
+  },
+  "id": "1c9aa3e2-1d69-4982-955f-adc80bd65f03",
+  "version": 4,
+  "chain": "ethereum"
+}

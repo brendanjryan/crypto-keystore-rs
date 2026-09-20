@@ -1,0 +1,18 @@
+{
+  "crypto": {
+    "c": 2,
+    "cipher": "aes-256-gcm",
+    "cipherparams": {
+      "iv": "0394ff3c5fdfc6f048bd4d46"
+    },
+    "ciphertext": "21febb787168efaf72359043a172a55ebc8fcd1625c7138869dd4b1dd9dd95057649814ef5b2835a8de37402afbfdbb1d3d7508d6e5a2da6a3a2e7910848f24f",
+    "dklen": 32,
+    "kdf": "pbkdf2",
+    "mac": "cde6fdc3b2d79cdfcdede3d39722c6ca",
+    "prf": "hmac-sha256",
+    "salt": "4c59a6d6c959853a94a46b8bb85710bb216bf31b4600943267cdcf1d99cdc45b"
+  },
+  "id": "99ca2c24-67b4-4fe6-a9f5-02ebfb5c7f75",
+  "version": 5,
+  "chain": "solana"
+}

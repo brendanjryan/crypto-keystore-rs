@@ -70,3 +70,19 @@ fn rejects_ambiguous_nested_and_flat_parameters() {
         assert!(serde_json::from_value::<EthereumKeystore>(value).is_err());
     }
 }
+
+#[test]
+fn rejects_missing_and_malformed_nested_kdf_parameters() {
+    let base: Value = serde_json::from_str(include_str!("fixtures/ethereum_v3.json")).unwrap();
+    for nested in [json!(null), json!(3), json!("pbkdf2"), json!([])] {
+        let mut value = base.clone();
+        value["crypto"]["kdfparams"] = nested;
+        assert!(EthereumKeystore::from_json(&value.to_string(), "testpassword").is_err());
+    }
+    let mut value = base.clone();
+    value["crypto"].as_object_mut().unwrap().remove("kdf");
+    assert!(EthereumKeystore::from_json(&value.to_string(), "testpassword").is_err());
+    let mut value = base;
+    value["crypto"]["kdfparams"]["kdf"] = json!("pbkdf2");
+    assert!(EthereumKeystore::from_json(&value.to_string(), "testpassword").is_err());
+}

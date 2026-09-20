@@ -2,6 +2,7 @@
 name = "crypto-keystore-rs"
 version = "0.2.2"
 edition = "2021"
+rust-version = "1.85"
 authors = ["Brendan Ryan"]
 description = "Multi-chain keystore library supporting Ethereum and Solana with Web3 Secret Storage format"
 license = "Apache-2.0"
@@ -15,6 +16,11 @@ exclude = [
     ".github/",
     "vendor/",
     "keystores/",
+    "fuzz/target/",
+    "fuzz/artifacts/",
+    "mutants.out/",
+    "mutants.out.old/",
+    "security-mutations.out/",
 ]
 
 [dependencies]
@@ -59,3 +65,6 @@ required-features = ["ethereum"]
 [[example]]
 name = "solana_basic"
 required-features = ["solana"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

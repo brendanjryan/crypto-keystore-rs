@@ -122,12 +122,8 @@ macro_rules! define_chain_key {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use crate::chains::ChainKey;
-    use crate::error::Result;
-    use rand::{CryptoRng, RngCore};
-    use zeroize::Zeroizing;
-
     // Example minimal key type for testing the macro
     #[derive(Clone)]
     struct ExampleKey {
@@ -141,29 +137,7 @@ mod tests {
         keystore_size = 32
     }
 
-    // Implement ChainKey for the example
-    impl ChainKey for ExampleKey {
-        const SECRET_KEY_SIZE: usize = ExampleKey::SECRET_KEY_SIZE;
-        const KEYSTORE_SIZE: usize = ExampleKey::KEYSTORE_SIZE;
-        const CHAIN_ID: &'static str = ExampleKey::CHAIN_ID;
-
-        fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
-            Zeroizing::new(self.bytes.clone())
-        }
-
-        fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
-            Self::validate_keystore_size(bytes)?;
-            Ok(ExampleKey {
-                bytes: bytes.to_vec(),
-            })
-        }
-
-        fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-            let mut bytes = vec![0u8; 32];
-            rng.fill_bytes(&mut bytes);
-            ExampleKey { bytes }
-        }
-
+    impl ExampleKey {
         fn address(&self) -> String {
             format!("example_{}", hex::encode(&self.bytes[..8]))
         }

@@ -17,3 +17,16 @@ Thumbs.db
 # Testing
 keystores/
 *.keystore
+
+# Local security-test reports and generated fuzz inputs
+/mutants.out/
+/mutants.out.old/
+/fuzz/target/
+/fuzz/artifacts/
+/fuzz/coverage/
+/fuzz/corpus/imports/[0-9a-f][0-9a-f][0-9a-f][0-9a-f]*
+/fuzz/corpus/authenticated/[0-9a-f][0-9a-f][0-9a-f][0-9a-f]*
+
+/security-mutations.out/
+
+__pycache__/

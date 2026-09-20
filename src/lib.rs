@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! # crypto-keystore-rs
 //!
 //! A multi-chain keystore library supporting Ethereum and Solana with the Web3 Secret Storage format.

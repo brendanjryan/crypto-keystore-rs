@@ -1,5 +1,4 @@
-mod common;
-
+#[cfg(any(feature = "ethereum", feature = "solana"))]
 use crypto_keystore_rs::{ChainKey, KeystoreError};
 
 #[cfg(feature = "ethereum")]

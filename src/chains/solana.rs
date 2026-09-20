@@ -141,6 +141,7 @@ impl PartialEq for SolanaKey {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use rand::thread_rng;
