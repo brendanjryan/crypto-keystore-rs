@@ -44,6 +44,13 @@ Version 3 supports Ethereum's Web3 Secret Storage format, including nested
 `crypto.kdfparams`. Version 4 uses chain-specific legacy MACs and flattened KDF
 parameters. Previously generated flattened v3 files also remain readable.
 
+Version 3 increments the full 128-bit AES-CTR counter in big-endian order. Version
+4 preserves the original 64-bit big-endian counter, leaving the upper 64 IV bits
+unchanged. They differ only when the lower 64 bits carry during encryption.
+Older releases also used the 64-bit counter for v3; those nonstandard v3 files
+require the old counter behavior to recover the original key if a carry occurred.
+The legacy MAC cannot distinguish these counter interpretations.
+
 The v3/v4 MAC does not cover the IV. Reading a legacy file cannot detect every
 form of tampering; verify the expected address when migrating a trusted copy.
 Changing only its `version` field does not upgrade its encryption.

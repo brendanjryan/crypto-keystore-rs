@@ -23,8 +23,6 @@ use zeroize::Zeroizing;
 #[cfg(feature = "ethereum")]
 use sha3::Keccak256;
 
-type Aes128Ctr = ctr::Ctr64BE<aes::Aes128>;
-
 /// Type-safe keystore format version.
 ///
 /// This enum represents the supported keystore versions with type safety,
@@ -595,6 +593,20 @@ impl<K: ChainKey> Keystore<K> {
         )
     }
 
+    fn apply_legacy_keystream(version: u32, key: &[u8], iv: &[u8], data: &mut [u8]) -> Result<()> {
+        // Web3 v3 increments the full counter; v4 preserves the original format.
+        if version == VERSION_3 {
+            ctr::Ctr128BE::<aes::Aes128>::new_from_slices(key, iv)
+                .map_err(|_| KeystoreError::CorruptedData)?
+                .try_apply_keystream(data)
+        } else {
+            ctr::Ctr64BE::<aes::Aes128>::new_from_slices(key, iv)
+                .map_err(|_| KeystoreError::CorruptedData)?
+                .try_apply_keystream(data)
+        }
+        .map_err(|_| KeystoreError::CorruptedData)
+    }
+
     fn authenticated_metadata(&self) -> Result<Vec<u8>> {
         serde_json::to_vec(&(
             "crypto-keystore",
@@ -680,9 +692,12 @@ impl<K: ChainKey> Keystore<K> {
                 .map_err(|_| KeystoreError::CryptoError("AES-GCM encryption failed".into()))?
                 .to_vec()
         } else {
-            let mut cipher = Aes128Ctr::new_from_slices(&derived_key[..ENCRYPTION_KEY_SIZE], &iv)
-                .map_err(|_| KeystoreError::CorruptedData)?;
-            cipher.apply_keystream(&mut ciphertext);
+            Self::apply_legacy_keystream(
+                version,
+                &derived_key[..ENCRYPTION_KEY_SIZE],
+                &iv,
+                &mut ciphertext,
+            )?;
             Self::compute_mac(
                 &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE],
                 &ciphertext,
@@ -872,9 +887,12 @@ impl<K: ChainKey> Keystore<K> {
             if !bool::from(computed_mac.ct_eq(&expected_mac_bytes)) {
                 return Err(KeystoreError::IncorrectPassword);
             }
-            let mut cipher = Aes128Ctr::new_from_slices(encryption_key, &iv_bytes)
-                .map_err(|_| KeystoreError::CorruptedData)?;
-            cipher.apply_keystream(&mut plaintext);
+            Self::apply_legacy_keystream(
+                keystore.version,
+                encryption_key,
+                &iv_bytes,
+                &mut plaintext,
+            )?;
         }
 
         let key = K::from_keystore_bytes(&plaintext)?;
@@ -1284,6 +1302,77 @@ mod tests {
 
         fn address(&self) -> String {
             hex::encode(&self.0)
+        }
+    }
+
+    // OpenSSL AES-128-CTR vectors; the v4 column uses AES-ECB on each
+    // counter block with only the low 64 bits incremented.
+    #[test]
+    #[cfg(feature = "ethereum")]
+    fn legacy_counter_boundaries_match_independent_vectors() {
+        struct FixedRng([u8; 16]);
+        impl CryptoRng for FixedRng {}
+        impl RngCore for FixedRng {
+            fn next_u32(&mut self) -> u32 {
+                let mut bytes = [0; 4];
+                self.fill_bytes(&mut bytes);
+                u32::from_le_bytes(bytes)
+            }
+            fn next_u64(&mut self) -> u64 {
+                let mut bytes = [0; 8];
+                self.fill_bytes(&mut bytes);
+                u64::from_le_bytes(bytes)
+            }
+            fn fill_bytes(&mut self, dest: &mut [u8]) {
+                if dest.len() == 16 {
+                    dest.copy_from_slice(&self.0);
+                } else {
+                    dest.fill(0);
+                }
+            }
+            fn try_fill_bytes(&mut self, dest: &mut [u8]) -> std::result::Result<(), rand::Error> {
+                self.fill_bytes(dest);
+                Ok(())
+            }
+        }
+
+        for (iv, v3, v4) in [
+            (
+                "0000000000000000fffffffffffffffe",
+                "1e8efbc96e5dda122904e48d091edc4cb3a854c9ae7d31982dbf902e534aa279",
+                "1e8efbc96e5dda122904e48d091edc4cb3a854c9ae7d31982dbf902e534aa279",
+            ),
+            (
+                "0000000000000000ffffffffffffffff",
+                "b3a854c9ae7d31982dbf902e534aa27892f3f62b9b9e7141fbfd926ab5ce5797",
+                "b3a854c9ae7d31982dbf902e534aa278c716315cb12f3b283ee90e67d987d894",
+            ),
+            (
+                "ffffffffffffffffffffffffffffffff",
+                "02427e9cef0641e4bca2b0f2a16d2855c716315cb12f3b283ee90e67d987d894",
+                "02427e9cef0641e4bca2b0f2a16d2855b059a764f03590533f203378c9474a56",
+            ),
+        ] {
+            for (version, expected) in [(VERSION_3, v3), (VERSION_4, v4)] {
+                let mut secret = [0; 32];
+                secret[31] = 1;
+                let key = crate::EthereumKey::from_keystore_bytes(&secret).unwrap();
+                let mut rng = FixedRng(hex::decode(iv).unwrap().try_into().unwrap());
+                let store = Keystore::encrypt(
+                    &mut rng,
+                    key,
+                    "password",
+                    KdfConfig::custom_pbkdf2(2),
+                    version,
+                    "3198bc9c-6672-5ab3-d995-4942343ae5b6".into(),
+                )
+                .unwrap();
+                assert_eq!(store.crypto.ciphertext, expected, "v{version}, IV {iv}");
+                let loaded =
+                    crate::EthereumKeystore::from_json(&store.to_json().unwrap(), "password")
+                        .unwrap();
+                assert_eq!(loaded.key().unwrap().to_keystore_bytes().as_slice(), secret);
+            }
         }
     }
 
