@@ -67,7 +67,7 @@ impl SolanaKey {
     #[must_use]
     pub fn to_bytes(&self) -> [u8; 64] {
         let mut bytes = [0u8; 64];
-        bytes[..SECRET_KEY_SIZE].copy_from_slice(&self.signing_key.to_bytes());
+        bytes[..SECRET_KEY_SIZE].copy_from_slice(self.signing_key.as_bytes());
         let verifying_key = self.signing_key.verifying_key();
         bytes[SECRET_KEY_SIZE..].copy_from_slice(verifying_key.as_bytes());
         bytes
@@ -80,21 +80,24 @@ impl ChainKey for SolanaKey {
     const CHAIN_ID: &'static str = "solana";
 
     fn to_keystore_bytes(&self) -> Zeroizing<Vec<u8>> {
-        Zeroizing::new(self.to_bytes().to_vec())
+        let mut bytes = Zeroizing::new(Vec::with_capacity(Self::KEYSTORE_SIZE));
+        bytes.extend_from_slice(self.signing_key.as_bytes());
+        bytes.extend_from_slice(self.verifying_key().as_bytes());
+        bytes
     }
 
     fn from_keystore_bytes(bytes: &[u8]) -> Result<Self> {
         Self::validate_keystore_size(bytes)?;
 
         // SAFETY: Length checked above, so slice access is safe
-        let secret_bytes: [u8; SECRET_KEY_SIZE] = bytes[..SECRET_KEY_SIZE]
+        let secret_bytes: &[u8; SECRET_KEY_SIZE] = bytes[..SECRET_KEY_SIZE]
             .try_into()
             .expect("length already validated");
         let public_bytes: [u8; PUBLIC_KEY_SIZE] = bytes[SECRET_KEY_SIZE..]
             .try_into()
             .expect("length already validated");
 
-        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let signing_key = SigningKey::from_bytes(secret_bytes);
 
         // Validate that stored public key matches the derived one
         let verifying_key =
