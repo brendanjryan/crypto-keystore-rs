@@ -1,3 +1,4 @@
+#![cfg(any(feature = "ethereum", feature = "solana"))]
 mod common;
 
 use proptest::prelude::*;
