@@ -4,7 +4,7 @@ use crypto_keystore_rs::{
 use serde_json::json;
 
 fn check_versions<K: ChainKey + std::fmt::Debug>() {
-    for version in [0, 2, 5, 99] {
+    for version in [0, 2, 6, 99] {
         assert!(
             matches!(KeystoreBuilder::<K>::new().with_random_key().with_version(version)
             .with_kdf_config(KdfConfig::custom_pbkdf2(0)).build("password"),

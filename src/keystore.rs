@@ -3,6 +3,10 @@ use crate::crypto_config::*;
 use crate::error::{KeystoreError, Result};
 use crate::kdf_config::{KdfConfig, KdfLimits, KdfParams};
 use aes::cipher::{KeyIvInit, StreamCipher};
+use aes_gcm::{
+    aead::{AeadInPlace, KeyInit},
+    Aes256Gcm, Nonce, Tag,
+};
 use pbkdf2::pbkdf2_hmac;
 use rand::{CryptoRng, RngCore};
 use scrypt::{scrypt, Params as ScryptParams};
@@ -43,6 +47,10 @@ pub enum KeystoreVersion {
     ///   - `chain="ethereum"` → Keccak256 (for Ethereum compatibility)
     ///   - `chain="solana"` or others → SHA256
     V4,
+
+    /// Authenticated multi-chain format using AES-256-GCM.
+    /// Protects the nonce, ciphertext, and keystore metadata against tampering.
+    V5,
 }
 
 impl KeystoreVersion {
@@ -53,6 +61,7 @@ impl KeystoreVersion {
         match self {
             KeystoreVersion::V3 => 3,
             KeystoreVersion::V4 => 4,
+            KeystoreVersion::V5 => 5,
         }
     }
 
@@ -66,6 +75,7 @@ impl KeystoreVersion {
         match version {
             3 => Ok(KeystoreVersion::V3),
             4 => Ok(KeystoreVersion::V4),
+            5 => Ok(KeystoreVersion::V5),
             _ => Err(KeystoreError::UnsupportedVersion(version)),
         }
     }
@@ -83,13 +93,20 @@ impl KeystoreVersion {
     pub const fn is_v4(self) -> bool {
         matches!(self, KeystoreVersion::V4)
     }
+
+    /// Returns `true` for the authenticated format.
+    #[inline]
+    #[must_use]
+    pub const fn is_v5(self) -> bool {
+        matches!(self, KeystoreVersion::V5)
+    }
 }
 
 impl Default for KeystoreVersion {
-    /// Returns the default version (V4 - multi-chain format).
+    /// Returns the default version (V5 - authenticated multi-chain format).
     #[inline]
     fn default() -> Self {
-        KeystoreVersion::V4
+        KeystoreVersion::V5
     }
 }
 
@@ -116,11 +133,14 @@ pub const VERSION_3: u32 = 3;
 ///   - `chain="solana"` or others → SHA256
 pub const VERSION_4: u32 = 4;
 
+/// Authenticated multi-chain format using AES-256-GCM.
+pub const VERSION_5: u32 = 5;
+
 /// A generic keystore supporting multiple blockchain key types.
 ///
-/// The keystore uses the Web3 Secret Storage format with AES-128-CTR encryption
-/// and Scrypt/PBKDF2 key derivation. Keys are encrypted at rest and only decrypted
-/// when loaded with the correct password.
+/// New keystores use AES-256-GCM authenticated encryption (v5) and
+/// Scrypt/PBKDF2 key derivation. Legacy v3/v4 AES-128-CTR files remain readable.
+/// Keys are encrypted at rest and only decrypted with the correct password.
 ///
 /// # Type Parameters
 ///
@@ -154,7 +174,8 @@ pub struct Keystore<K: ChainKey> {
 
     /// Format version
     /// - 3 for Ethereum legacy
-    /// - 4 for multi-chain
+    /// - 4 for legacy multi-chain
+    /// - 5 for authenticated multi-chain
     version: u32,
 
     /// Chain identifier ("ethereum", "solana", etc.)
@@ -564,6 +585,38 @@ impl<K: ChainKey> Keystore<K> {
         password: S,
         config: KdfConfig,
     ) -> Result<Self> {
+        Self::encrypt(
+            rng,
+            key,
+            password,
+            config,
+            VERSION_5,
+            Uuid::new_v4().to_string(),
+        )
+    }
+
+    fn authenticated_metadata(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec(&(
+            "crypto-keystore",
+            self.version,
+            &self.id,
+            &self.chain,
+            &self.crypto.cipher,
+            &self.crypto.kdfparams,
+        ))
+        .map_err(Into::into)
+    }
+
+    fn encrypt<R: RngCore + CryptoRng, S: AsRef<str>>(
+        rng: &mut R,
+        key: K,
+        password: S,
+        config: KdfConfig,
+        version: u32,
+        id: String,
+    ) -> Result<Self> {
+        let chain = (version != VERSION_3).then_some(K::CHAIN_ID);
+        Self::validate_version_chain(version, chain)?;
         let salt = Self::generate_random_bytes(rng, DEFAULT_KEY_SIZE);
 
         let kdfparams = match config.params() {
@@ -585,37 +638,60 @@ impl<K: ChainKey> Keystore<K> {
         };
         let derived_key = Self::derive_key(password.as_ref(), &kdfparams)?;
 
-        let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
-        let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
-
-        let iv = Self::generate_random_bytes(rng, DEFAULT_IV_SIZE);
-
-        let mut cipher = Aes128Ctr::new(encryption_key.into(), iv.as_slice().into());
-        let mut ciphertext = key.to_keystore_bytes();
-        cipher.apply_keystream(&mut ciphertext);
-
-        let use_keccak = Self::should_use_keccak(VERSION_4, Some(K::CHAIN_ID));
-        let mac = Self::compute_mac(mac_key, &ciphertext, use_keccak)?;
-
-        let crypto = CryptoJson {
-            cipher: CIPHER_NAME.to_string(),
-            cipherparams: CipherparamsJson {
-                iv: hex::encode(&iv),
+        let authenticated = version == VERSION_5;
+        let iv = Self::generate_random_bytes(
+            rng,
+            if authenticated {
+                GCM_NONCE_SIZE
+            } else {
+                DEFAULT_IV_SIZE
             },
-            ciphertext: hex::encode(&ciphertext),
-            kdfparams,
-            mac: hex::encode(&mac),
-        };
-
-        let uuid = Uuid::new_v4();
-
-        Ok(Keystore {
+        );
+        let mut ciphertext = key.to_keystore_bytes();
+        let mut keystore = Keystore {
             key: Some(key),
-            crypto,
-            id: uuid.to_string(),
-            version: VERSION_4,
-            chain: Some(K::CHAIN_ID.to_string()),
-        })
+            crypto: CryptoJson {
+                cipher: if authenticated {
+                    AUTHENTICATED_CIPHER_NAME
+                } else {
+                    CIPHER_NAME
+                }
+                .into(),
+                cipherparams: CipherparamsJson {
+                    iv: hex::encode(&iv),
+                },
+                ciphertext: String::new(),
+                kdfparams,
+                mac: String::new(),
+            },
+            id,
+            version,
+            chain: chain.map(str::to_owned),
+        };
+        let mac = if authenticated {
+            let cipher = Aes256Gcm::new_from_slice(&derived_key[..DEFAULT_KEY_SIZE])
+                .map_err(|_| KeystoreError::CorruptedData)?;
+            cipher
+                .encrypt_in_place_detached(
+                    Nonce::from_slice(&iv),
+                    &keystore.authenticated_metadata()?,
+                    &mut ciphertext,
+                )
+                .map_err(|_| KeystoreError::CryptoError("AES-GCM encryption failed".into()))?
+                .to_vec()
+        } else {
+            let mut cipher = Aes128Ctr::new_from_slices(&derived_key[..ENCRYPTION_KEY_SIZE], &iv)
+                .map_err(|_| KeystoreError::CorruptedData)?;
+            cipher.apply_keystream(&mut ciphertext);
+            Self::compute_mac(
+                &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE],
+                &ciphertext,
+                Self::should_use_keccak(version, chain),
+            )?
+        };
+        keystore.crypto.ciphertext = hex::encode(&ciphertext);
+        keystore.crypto.mac = hex::encode(mac);
+        Ok(keystore)
     }
 
     /// Saves the keystore to a JSON file in the specified directory.
@@ -739,7 +815,13 @@ impl<K: ChainKey> Keystore<K> {
 
         Self::validate_version_chain(keystore.version, keystore.chain.as_deref())?;
 
-        if keystore.crypto.cipher != CIPHER_NAME {
+        let authenticated = keystore.version == VERSION_5;
+        let cipher_name = if authenticated {
+            AUTHENTICATED_CIPHER_NAME
+        } else {
+            CIPHER_NAME
+        };
+        if keystore.crypto.cipher != cipher_name {
             return Err(KeystoreError::UnsupportedCipher(
                 keystore.crypto.cipher.clone(),
             ));
@@ -752,31 +834,48 @@ impl<K: ChainKey> Keystore<K> {
         let iv_bytes = hex::decode(&keystore.crypto.cipherparams.iv)
             .map_err(|e| KeystoreError::HexError(format!("Invalid IV: {e}")))?;
         if ciphertext_bytes.len() != K::KEYSTORE_SIZE
-            || expected_mac_bytes.len() != DEFAULT_KEY_SIZE
-            || iv_bytes.len() != DEFAULT_IV_SIZE
+            || expected_mac_bytes.len()
+                != if authenticated {
+                    GCM_TAG_SIZE
+                } else {
+                    DEFAULT_KEY_SIZE
+                }
+            || iv_bytes.len()
+                != if authenticated {
+                    GCM_NONCE_SIZE
+                } else {
+                    DEFAULT_IV_SIZE
+                }
         {
             return Err(KeystoreError::CorruptedData);
         }
 
         Self::validate_kdf_limits(&keystore.crypto.kdfparams, limits)?;
         let derived_key = Self::derive_key(password.as_ref(), &keystore.crypto.kdfparams)?;
-        let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
-        let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
-
-        let use_keccak = Self::should_use_keccak(keystore.version, keystore.chain.as_deref());
-
-        let computed_mac = Self::compute_mac(mac_key, &ciphertext_bytes, use_keccak)?;
-
-        if computed_mac.len() != expected_mac_bytes.len()
-            || !bool::from(computed_mac.ct_eq(&expected_mac_bytes))
-        {
-            return Err(KeystoreError::IncorrectPassword);
-        }
-
-        let mut cipher = Aes128Ctr::new_from_slices(encryption_key, &iv_bytes)
-            .map_err(|_| KeystoreError::CorruptedData)?;
         let mut plaintext = Zeroizing::new(ciphertext_bytes);
-        cipher.apply_keystream(&mut plaintext);
+        if authenticated {
+            let cipher = Aes256Gcm::new_from_slice(&derived_key[..DEFAULT_KEY_SIZE])
+                .map_err(|_| KeystoreError::CorruptedData)?;
+            cipher
+                .decrypt_in_place_detached(
+                    Nonce::from_slice(&iv_bytes),
+                    &keystore.authenticated_metadata()?,
+                    &mut plaintext,
+                    Tag::from_slice(&expected_mac_bytes),
+                )
+                .map_err(|_| KeystoreError::IncorrectPassword)?;
+        } else {
+            let encryption_key = &derived_key[..ENCRYPTION_KEY_SIZE];
+            let mac_key = &derived_key[ENCRYPTION_KEY_SIZE..ENCRYPTION_KEY_SIZE + MAC_KEY_SIZE];
+            let use_keccak = Self::should_use_keccak(keystore.version, keystore.chain.as_deref());
+            let computed_mac = Self::compute_mac(mac_key, &plaintext, use_keccak)?;
+            if !bool::from(computed_mac.ct_eq(&expected_mac_bytes)) {
+                return Err(KeystoreError::IncorrectPassword);
+            }
+            let mut cipher = Aes128Ctr::new_from_slices(encryption_key, &iv_bytes)
+                .map_err(|_| KeystoreError::CorruptedData)?;
+            cipher.apply_keystream(&mut plaintext);
+        }
 
         let key = K::from_keystore_bytes(&plaintext)?;
 
@@ -840,7 +939,8 @@ impl<K: ChainKey> Keystore<K> {
     /// Returns the keystore version.
     ///
     /// - [`VERSION_3`] (3) - Ethereum legacy format
-    /// - [`VERSION_4`] (4) - Multi-chain format
+    /// - [`VERSION_4`] (4) - Legacy multi-chain format
+    /// - [`VERSION_5`] (5) - Authenticated multi-chain format
     #[inline]
     #[must_use]
     pub fn version(&self) -> u32 {
@@ -864,7 +964,7 @@ impl<K: ChainKey> Keystore<K> {
     ///     "password",
     ///     KdfConfig::custom_scrypt(4, 8, 1)
     /// ).unwrap();
-    /// assert_eq!(keystore.version_enum().unwrap(), KeystoreVersion::V4);
+    /// assert_eq!(keystore.version_enum().unwrap(), KeystoreVersion::V5);
     /// # }
     /// ```
     #[inline]
@@ -934,7 +1034,7 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// Defaults:
     /// - No key (must be set with `with_key()` or `with_random_key()`)
     /// - KDF: Scrypt with N=2^18 (secure defaults)
-    /// - Version: 4 (multi-chain format)
+    /// - Version: 5 (authenticated multi-chain format)
     /// - UUID: Auto-generated
     #[inline]
     #[must_use]
@@ -942,7 +1042,7 @@ impl<K: ChainKey> KeystoreBuilder<K> {
         KeystoreBuilder {
             key: None,
             kdf_config: KdfConfig::default(),
-            version: VERSION_4,
+            version: VERSION_5,
             uuid: None,
         }
     }
@@ -1035,7 +1135,8 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// Sets the keystore format version.
     ///
     /// - [`VERSION_3`] (3) - Ethereum legacy format
-    /// - [`VERSION_4`] (4) - Multi-chain format (recommended)
+    /// - [`VERSION_4`] (4) - Legacy multi-chain format
+    /// - [`VERSION_5`] (5) - Authenticated multi-chain format (recommended)
     #[inline]
     #[must_use]
     pub fn with_version(mut self, version: u32) -> Self {
@@ -1113,12 +1214,6 @@ impl<K: ChainKey> KeystoreBuilder<K> {
     /// # }
     /// ```
     pub fn build<S: AsRef<str>>(self, password: S) -> Result<Keystore<K>> {
-        let chain = if self.version == VERSION_3 {
-            None
-        } else {
-            Some(K::CHAIN_ID)
-        };
-        Keystore::<K>::validate_version_chain(self.version, chain)?;
         let uuid = self
             .uuid
             .map(|id| {
@@ -1131,20 +1226,14 @@ impl<K: ChainKey> KeystoreBuilder<K> {
             .key
             .ok_or_else(|| KeystoreError::CryptoError("No key set in builder".into()))?;
 
-        let mut keystore = Keystore::from_key_with_rng_and_config(
+        Keystore::encrypt(
             &mut rand::thread_rng(),
             key,
             password,
             self.kdf_config,
-        )?;
-
-        if let Some(uuid) = uuid {
-            keystore.id = uuid;
-        }
-        keystore.version = self.version;
-        keystore.chain = chain.map(str::to_owned);
-
-        Ok(keystore)
+            self.version,
+            uuid.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        )
     }
 }
 
@@ -1205,7 +1294,7 @@ mod tests {
         let keystore =
             Keystore::<TestKey>::new_with_config(password, KdfConfig::custom_scrypt(4, 8, 1))
                 .unwrap();
-        assert_eq!(keystore.version, VERSION_4);
+        assert_eq!(keystore.version, VERSION_5);
         assert_eq!(keystore.chain, Some("test".to_string()));
     }
 

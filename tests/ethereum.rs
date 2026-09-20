@@ -55,9 +55,9 @@ fn serializes_keystore_with_correct_json_format() {
     let filepath = dir.path().join(format!("{uuid}.json"));
     let json_content = std::fs::read_to_string(&filepath).unwrap();
 
-    assert!(json_content.contains("\"version\": 4"));
+    assert!(json_content.contains("\"version\": 5"));
     assert!(json_content.contains("\"chain\": \"ethereum\""));
-    assert!(json_content.contains("\"cipher\": \"aes-128-ctr\""));
+    assert!(json_content.contains("\"cipher\": \"aes-256-gcm\""));
     assert!(json_content.contains("\"ciphertext\""));
     assert!(json_content.contains("\"mac\""));
 }
