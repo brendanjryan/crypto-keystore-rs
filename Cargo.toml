@@ -26,7 +26,7 @@ exclude = [
 [dependencies]
 # Core dependencies (always included)
 aes = { version = "0.8", features = ["zeroize"] }
-aes-gcm = { version = "0.10", features = ["zeroize"] }
+aes-gcm = { version = "0.11", features = ["zeroize"] }
 ctr = "0.9"
 pbkdf2 = { version = "0.12", default-features = false }
 scrypt = { version = "0.11", default-features = false }
